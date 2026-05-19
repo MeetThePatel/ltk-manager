@@ -1,5 +1,6 @@
 use crate::error::{AppError, AppResult};
 use crate::mods::{ModLibrary, WadReportState};
+use crate::skin_remap::SkinRemapContent;
 use crate::state::{Settings, WadBlocklistEntry};
 use camino::Utf8PathBuf;
 use std::path::{Path, PathBuf};
@@ -44,7 +45,8 @@ impl ModLibrary {
     ) -> AppResult<PathBuf> {
         let storage_dir = self.storage_dir(settings)?;
         let game_dir = resolve_game_dir(settings)?;
-        let (profile_slug, enabled_mods) = self.get_enabled_mods_for_overlay(settings)?;
+        let (profile_slug, enabled_mods, skin_remaps) =
+            self.get_enabled_mods_for_overlay(settings)?;
 
         let profile_dir = storage_dir.join("profiles").join(profile_slug.as_str());
         let overlay_root = profile_dir.join("overlay");
@@ -128,6 +130,16 @@ impl ModLibrary {
             });
         }
         all_mods.extend(enabled_mods);
+        if !skin_remaps.is_empty() {
+            let content = SkinRemapContent::new(game_dir.clone(), skin_remaps)?;
+            let id = format!("ltk:skin-remaps:{:016x}", content.fingerprint());
+            tracing::info!("Adding generated skin remaps: id={}", id);
+            all_mods.push(ltk_overlay::EnabledMod {
+                id,
+                content: Box::new(content),
+                enabled_layers: None,
+            });
+        }
         builder.set_enabled_mods(all_mods);
 
         builder

@@ -4,4 +4,5 @@ export const settingsKeys = {
   setupRequired: () => [...settingsKeys.all, "setupRequired"] as const,
   appInfo: () => [...settingsKeys.all, "appInfo"] as const,
   availableWads: () => [...settingsKeys.all, "availableWads"] as const,
+  gameChampions: () => [...settingsKeys.all, "gameChampions"] as const,
 };

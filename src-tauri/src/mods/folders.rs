@@ -395,6 +395,7 @@ mod tests {
             enabled_mods: enabled.into_iter().map(String::from).collect(),
             mod_order: mod_order.into_iter().map(String::from).collect(),
             layer_states: HashMap::new(),
+            skin_remaps: Vec::new(),
             created_at: Utc::now(),
             last_used: Utc::now(),
         }

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkshopRouteImport } from './routes/workshop'
+import { Route as SkinRemapsRouteImport } from './routes/skin-remaps'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as DiagnosticsRouteImport } from './routes/diagnostics'
 import { Route as IndexRouteImport } from './routes/index'
@@ -23,6 +24,11 @@ import { Route as WorkshopProjectNameContentRouteImport } from './routes/worksho
 const WorkshopRoute = WorkshopRouteImport.update({
   id: '/workshop',
   path: '/workshop',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SkinRemapsRoute = SkinRemapsRouteImport.update({
+  id: '/skin-remaps',
+  path: '/skin-remaps',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -78,6 +84,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/diagnostics': typeof DiagnosticsRoute
   '/settings': typeof SettingsRoute
+  '/skin-remaps': typeof SkinRemapsRoute
   '/workshop': typeof WorkshopRouteWithChildren
   '/folder/$folderId': typeof FolderFolderIdRoute
   '/workshop/$projectName': typeof WorkshopProjectNameRouteWithChildren
@@ -90,6 +97,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/diagnostics': typeof DiagnosticsRoute
   '/settings': typeof SettingsRoute
+  '/skin-remaps': typeof SkinRemapsRoute
   '/folder/$folderId': typeof FolderFolderIdRoute
   '/workshop': typeof WorkshopIndexRoute
   '/workshop/$projectName/content': typeof WorkshopProjectNameContentRoute
@@ -101,6 +109,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/diagnostics': typeof DiagnosticsRoute
   '/settings': typeof SettingsRoute
+  '/skin-remaps': typeof SkinRemapsRoute
   '/workshop': typeof WorkshopRouteWithChildren
   '/folder/$folderId': typeof FolderFolderIdRoute
   '/workshop/$projectName': typeof WorkshopProjectNameRouteWithChildren
@@ -115,6 +124,7 @@ export interface FileRouteTypes {
     | '/'
     | '/diagnostics'
     | '/settings'
+    | '/skin-remaps'
     | '/workshop'
     | '/folder/$folderId'
     | '/workshop/$projectName'
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
     | '/'
     | '/diagnostics'
     | '/settings'
+    | '/skin-remaps'
     | '/folder/$folderId'
     | '/workshop'
     | '/workshop/$projectName/content'
@@ -137,6 +148,7 @@ export interface FileRouteTypes {
     | '/'
     | '/diagnostics'
     | '/settings'
+    | '/skin-remaps'
     | '/workshop'
     | '/folder/$folderId'
     | '/workshop/$projectName'
@@ -150,6 +162,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DiagnosticsRoute: typeof DiagnosticsRoute
   SettingsRoute: typeof SettingsRoute
+  SkinRemapsRoute: typeof SkinRemapsRoute
   WorkshopRoute: typeof WorkshopRouteWithChildren
   FolderFolderIdRoute: typeof FolderFolderIdRoute
 }
@@ -161,6 +174,13 @@ declare module '@tanstack/react-router' {
       path: '/workshop'
       fullPath: '/workshop'
       preLoaderRoute: typeof WorkshopRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/skin-remaps': {
+      id: '/skin-remaps'
+      path: '/skin-remaps'
+      fullPath: '/skin-remaps'
+      preLoaderRoute: typeof SkinRemapsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -262,6 +282,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DiagnosticsRoute: DiagnosticsRoute,
   SettingsRoute: SettingsRoute,
+  SkinRemapsRoute: SkinRemapsRoute,
   WorkshopRoute: WorkshopRouteWithChildren,
   FolderFolderIdRoute: FolderFolderIdRoute,
 }

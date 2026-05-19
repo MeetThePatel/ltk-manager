@@ -5,6 +5,8 @@ export const libraryKeys = {
   thumbnail: (modId: string) => [...libraryKeys.mod(modId), "thumbnail"] as const,
   profiles: () => [...libraryKeys.all, "profiles"] as const,
   activeProfile: () => [...libraryKeys.profiles(), "active"] as const,
+  skinRemaps: (profileId?: string | null) =>
+    [...libraryKeys.profiles(), profileId ?? "active", "skinRemaps"] as const,
   folders: () => [...libraryKeys.all, "folders"] as const,
   folderOrder: () => [...libraryKeys.all, "folderOrder"] as const,
   wadReports: () => [...libraryKeys.all, "wadReport"] as const,

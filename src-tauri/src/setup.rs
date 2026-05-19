@@ -118,7 +118,7 @@ fn initialize_first_run(app_handle: &tauri::AppHandle, settings_state: &Settings
     if let Some(exe_path) = ltk_mod_core::auto_detect_league_path() {
         let path = std::path::Path::new(exe_path.as_str());
 
-        if let Some(install_root) = path.parent().and_then(|p| p.parent()) {
+        if let Some(install_root) = resolve_auto_detected_install_root(path) {
             tracing::info!("Auto-detected League at: {:?}", install_root);
             settings.league_path = Some(install_root.to_path_buf());
             settings.first_run_complete = true;
@@ -129,5 +129,57 @@ fn initialize_first_run(app_handle: &tauri::AppHandle, settings_state: &Settings
         }
     } else {
         tracing::info!("Auto-detection did not find League installation");
+    }
+}
+
+fn resolve_auto_detected_install_root(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    if let Some(app_root) = macos_app_bundle_root(path) {
+        return Some(app_root);
+    }
+
+    // Navigate from "Game/League of Legends.exe" to installation root.
+    path.parent()
+        .and_then(|p| p.parent())
+        .map(std::path::Path::to_path_buf)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_app_bundle_root(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    path.ancestors()
+        .find(|ancestor| ancestor.extension().and_then(|ext| ext.to_str()) == Some("app"))
+        .map(std::path::Path::to_path_buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn resolves_regular_install_root_from_executable_path() {
+        let exe = Path::new("/Games/League of Legends")
+            .join("Game")
+            .join("League of Legends.exe");
+
+        assert_eq!(
+            resolve_auto_detected_install_root(&exe).unwrap(),
+            PathBuf::from("/Games/League of Legends")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn resolves_macos_app_bundle_from_executable_path() {
+        let exe = Path::new("/Applications/League of Legends.app")
+            .join("Contents")
+            .join("LoL")
+            .join("Game")
+            .join("League of Legends");
+
+        assert_eq!(
+            resolve_auto_detected_install_root(&exe).unwrap(),
+            PathBuf::from("/Applications/League of Legends.app")
+        );
     }
 }

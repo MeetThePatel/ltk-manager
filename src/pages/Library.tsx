@@ -14,6 +14,7 @@ import {
   useInstalledMods,
   useLibraryActions,
   useModFileDrop,
+  useSkinRemaps,
 } from "@/modules/library";
 import { MigrationBanner, MigrationWizardDialog } from "@/modules/migration";
 import {
@@ -45,6 +46,7 @@ export function Library({ folderId }: LibraryProps = {}) {
   const saveSettings = useSaveSettings();
 
   const { data: patcherStatus } = usePatcherStatus();
+  const { data: skinRemaps = [] } = useSkinRemaps();
   const startPatcher = useStartPatcher();
   const stopPatcher = useStopPatcher();
   const maybeShowHddWarning = useHddWarning();
@@ -54,6 +56,7 @@ export function Library({ folderId }: LibraryProps = {}) {
 
   const filterOptions = useFilterOptions(mods);
   const hasEnabledMods = mods.some((m) => m.enabled);
+  const hasPatcherInputs = hasEnabledMods || skinRemaps.length > 0;
 
   useHotkeys("ctrl+i", () => actions.handleInstallMod(), {
     preventDefault: true,
@@ -85,7 +88,7 @@ export function Library({ folderId }: LibraryProps = {}) {
     }
 
     // If all enabled mods were flagged, don't start the patcher
-    if (flaggedMods.length >= enabledMods.length) {
+    if (enabledMods.length > 0 && flaggedMods.length >= enabledMods.length) {
       return;
     }
 
@@ -143,7 +146,7 @@ export function Library({ folderId }: LibraryProps = {}) {
               }
             : undefined
         }
-        hasEnabledMods={hasEnabledMods}
+        hasEnabledMods={hasPatcherInputs}
         isLoading={isLoading}
         isPatcherActive={isPatcherActive}
         filterOptions={filterOptions}

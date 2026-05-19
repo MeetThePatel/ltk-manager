@@ -6,6 +6,7 @@ import {
   type InstalledMod,
   type LibraryFolder,
   type Profile,
+  type SkinRemap,
 } from "@/lib/tauri";
 import { queryFn } from "@/utils/query";
 
@@ -47,6 +48,23 @@ export function activeProfileQueryOptions() {
  */
 export function useActiveProfile() {
   return useQuery(activeProfileQueryOptions());
+}
+
+/**
+ * Query options for fetching skin remaps for a profile.
+ */
+export function skinRemapsQueryOptions(profileId?: string | null) {
+  return queryOptions<SkinRemap[], AppError>({
+    queryKey: libraryKeys.skinRemaps(profileId),
+    queryFn: queryFn(() => api.getSkinRemaps(profileId)),
+  });
+}
+
+/**
+ * Hook to fetch skin remaps for a profile. Defaults to the active profile.
+ */
+export function useSkinRemaps(profileId?: string | null) {
+  return useQuery(skinRemapsQueryOptions(profileId));
 }
 
 // ============================================================================

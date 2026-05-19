@@ -17,6 +17,7 @@ mod mods;
 mod overlay;
 pub mod patcher;
 mod setup;
+mod skin_remap;
 mod state;
 mod storage;
 mod tray;
@@ -58,6 +59,7 @@ fn main() {
             commands::validate_league_path,
             commands::check_setup_required,
             commands::list_available_wads,
+            commands::list_game_champions,
             // Mods
             commands::get_installed_mods,
             commands::install_mod,
@@ -104,6 +106,9 @@ fn main() {
             commands::delete_mod_profile,
             commands::switch_mod_profile,
             commands::rename_mod_profile,
+            commands::get_skin_remaps,
+            commands::set_skin_remap,
+            commands::remove_skin_remap,
             // Shell
             commands::reveal_in_explorer,
             commands::minimize_to_tray,

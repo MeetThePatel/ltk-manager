@@ -9,6 +9,7 @@ import {
   Library,
   Minus,
   Settings,
+  Shirt,
   Square,
   Stethoscope,
   X,
@@ -25,6 +26,7 @@ import { NotificationCenter } from "./NotificationCenter";
 
 const navItems = [
   { to: "/", label: "Library", icon: Library, exact: true },
+  { to: "/skin-remaps", label: "Skin Remaps", icon: Shirt, exact: true },
   { to: "/workshop", label: "Workshop", icon: Hammer, exact: false },
 ] as const;
 

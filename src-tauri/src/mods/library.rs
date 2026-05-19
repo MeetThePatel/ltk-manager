@@ -543,7 +543,11 @@ impl ModLibrary {
     pub fn get_enabled_mods_for_overlay(
         &self,
         settings: &Settings,
-    ) -> AppResult<(super::ProfileSlug, Vec<ltk_overlay::EnabledMod>)> {
+    ) -> AppResult<(
+        super::ProfileSlug,
+        Vec<ltk_overlay::EnabledMod>,
+        Vec<super::SkinRemap>,
+    )> {
         self.with_index(settings, |storage_dir, index| {
             let active_profile_id = index.active_profile_id.clone();
             let active_profile = index
@@ -612,7 +616,11 @@ impl ModLibrary {
                 });
             }
 
-            Ok((active_profile.slug.clone(), enabled_mods))
+            Ok((
+                active_profile.slug.clone(),
+                enabled_mods,
+                active_profile.skin_remaps.clone(),
+            ))
         })
     }
 }

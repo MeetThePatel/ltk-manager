@@ -223,10 +223,29 @@ pub struct Profile {
     /// Missing entries default to all layers enabled.
     #[serde(default)]
     pub layer_states: HashMap<String, HashMap<String, bool>>,
+    /// Riot skin slot remaps configured for this profile.
+    #[serde(default)]
+    pub skin_remaps: Vec<SkinRemap>,
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
     /// Last time this profile was used/switched to
     pub last_used: DateTime<Utc>,
+}
+
+/// A per-profile regular skin slot remap.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct SkinRemap {
+    pub champion_id: String,
+    pub champion_name: String,
+    pub target_skin_number: u32,
+    #[serde(default)]
+    pub target_skin_name: Option<String>,
+    #[serde(default)]
+    pub target_chroma_id: Option<u32>,
+    #[serde(default)]
+    pub target_chroma_name: Option<String>,
 }
 
 /// A mod layer shown in the UI.
@@ -352,6 +371,7 @@ impl Default for LibraryIndex {
             enabled_mods: Vec::new(),
             mod_order: Vec::new(),
             layer_states: HashMap::new(),
+            skin_remaps: Vec::new(),
             created_at: Utc::now(),
             last_used: Utc::now(),
         };
@@ -846,6 +866,7 @@ mod tests {
                 enabled_mods: Vec::new(),
                 mod_order: Vec::new(),
                 layer_states: HashMap::new(),
+                skin_remaps: Vec::new(),
                 created_at: Utc::now(),
                 last_used: Utc::now(),
             }],
@@ -873,6 +894,7 @@ mod tests {
                 enabled_mods: Vec::new(),
                 mod_order: Vec::new(),
                 layer_states: HashMap::new(),
+                skin_remaps: Vec::new(),
                 created_at: Utc::now(),
                 last_used: Utc::now(),
             }],
@@ -900,6 +922,7 @@ mod tests {
                 enabled_mods: Vec::new(),
                 mod_order: Vec::new(),
                 layer_states: HashMap::new(),
+                skin_remaps: Vec::new(),
                 created_at: Utc::now(),
                 last_used: Utc::now(),
             }],
@@ -934,6 +957,30 @@ mod tests {
         assert_eq!(loaded.profiles.len(), 1);
         assert_eq!(loaded.profiles[0].name, "Default");
         assert_eq!(loaded.active_profile_id, loaded.profiles[0].id);
+    }
+
+    #[test]
+    fn profile_deserializes_without_skin_remaps() {
+        let json = r#"{
+            "version": 0,
+            "mods": [],
+            "profiles": [{
+                "id": "p1",
+                "name": "Default",
+                "slug": "default",
+                "enabledMods": [],
+                "modOrder": [],
+                "layerStates": {},
+                "createdAt": "2025-01-01T00:00:00Z",
+                "lastUsed": "2025-01-01T00:00:00Z"
+            }],
+            "activeProfileId": "p1",
+            "folders": [],
+            "folderOrder": []
+        }"#;
+
+        let index: LibraryIndex = serde_json::from_str(json).unwrap();
+        assert!(index.profiles[0].skin_remaps.is_empty());
     }
 
     #[test]
@@ -1000,6 +1047,7 @@ mod tests {
             enabled_mods: Vec::new(),
             mod_order: Vec::new(),
             layer_states: HashMap::new(),
+            skin_remaps: Vec::new(),
             created_at: Utc::now(),
             last_used: Utc::now(),
         });
@@ -1039,6 +1087,7 @@ mod tests {
             mod_order: mod_order.into_iter().map(String::from).collect(),
             enabled_mods: enabled.into_iter().map(String::from).collect(),
             layer_states: HashMap::new(),
+            skin_remaps: Vec::new(),
             created_at: Utc::now(),
             last_used: Utc::now(),
         }

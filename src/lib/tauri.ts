@@ -11,6 +11,7 @@ import type {
   DiagnosticReport,
   EditModMetadataArgs,
   FantomePeekResult,
+  GameChampion,
   HotkeyAction,
   ImportFantomeArgs,
   ImportGitRepoArgs,
@@ -26,6 +27,7 @@ import type {
   Profile,
   SaveProjectConfigArgs,
   Settings,
+  SkinRemap,
   StorageMedium,
   ValidationResult,
   WorkshopLayerInfo,
@@ -89,6 +91,7 @@ export const api = {
   validateLeaguePath: (path: string) => invokeResult<boolean>("validate_league_path", { path }),
   checkSetupRequired: () => invokeResult<boolean>("check_setup_required"),
   listAvailableWads: () => invokeResult<string[]>("list_available_wads"),
+  listGameChampions: () => invokeResult<GameChampion[]>("list_game_champions"),
 
   // Mods
   getInstalledMods: () => invokeResult<InstalledMod[]>("get_installed_mods"),
@@ -143,6 +146,12 @@ export const api = {
     invokeResult<Profile>("switch_mod_profile", { profileId }),
   renameModProfile: (profileId: string, newName: string) =>
     invokeResult<Profile>("rename_mod_profile", { profileId, newName }),
+  getSkinRemaps: (profileId?: string | null) =>
+    invokeResult<SkinRemap[]>("get_skin_remaps", { profileId: profileId ?? null }),
+  setSkinRemap: (remap: SkinRemap, profileId?: string | null) =>
+    invokeResult<Profile>("set_skin_remap", { profileId: profileId ?? null, remap }),
+  removeSkinRemap: (championId: string, profileId?: string | null) =>
+    invokeResult<Profile>("remove_skin_remap", { profileId: profileId ?? null, championId }),
 
   // Folders
   getFolders: () => invokeResult<LibraryFolder[]>("get_folders"),

@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use super::{
     get_active_profile, get_profile_by_id, resolve_profile_dirs, ModLibrary, Profile, ProfileSlug,
+    SkinRemap,
 };
 
 impl ModLibrary {
@@ -46,6 +47,7 @@ impl ModLibrary {
                 enabled_mods: Vec::new(),
                 mod_order,
                 layer_states: HashMap::new(),
+                skin_remaps: Vec::new(),
                 created_at: Utc::now(),
                 last_used: Utc::now(),
             };
@@ -192,5 +194,152 @@ impl ModLibrary {
             let profile = get_active_profile(index)?;
             Ok(profile.clone())
         })
+    }
+
+    /// Get skin remaps for a profile, defaulting to the active profile.
+    pub fn get_skin_remaps(
+        &self,
+        settings: &Settings,
+        profile_id: Option<String>,
+    ) -> AppResult<Vec<SkinRemap>> {
+        self.with_index(settings, |_storage_dir, index| {
+            let profile_id = profile_id.unwrap_or_else(|| index.active_profile_id.clone());
+            let profile = get_profile_by_id(index, &profile_id)?;
+            Ok(profile.skin_remaps.clone())
+        })
+    }
+
+    /// Add or replace a champion skin remap for a profile, defaulting to the active profile.
+    pub fn set_skin_remap(
+        &self,
+        settings: &Settings,
+        profile_id: Option<String>,
+        remap: SkinRemap,
+    ) -> AppResult<Profile> {
+        let remap = normalize_skin_remap(remap)?;
+        self.mutate_index(settings, |_storage_dir, index| {
+            let profile_id = profile_id.unwrap_or_else(|| index.active_profile_id.clone());
+            let profile = index
+                .profiles
+                .iter_mut()
+                .find(|p| p.id == profile_id)
+                .ok_or_else(|| AppError::Other(format!("Profile {} not found", profile_id)))?;
+
+            profile
+                .skin_remaps
+                .retain(|existing| existing.champion_id != remap.champion_id);
+            profile.skin_remaps.push(remap);
+            profile
+                .skin_remaps
+                .sort_by(|a, b| a.champion_name.cmp(&b.champion_name));
+
+            Ok(profile.clone())
+        })
+    }
+
+    /// Remove a champion skin remap from a profile, defaulting to the active profile.
+    pub fn remove_skin_remap(
+        &self,
+        settings: &Settings,
+        profile_id: Option<String>,
+        champion_id: String,
+    ) -> AppResult<Profile> {
+        let champion_id = normalize_champion_id(&champion_id)?;
+        self.mutate_index(settings, |_storage_dir, index| {
+            let profile_id = profile_id.unwrap_or_else(|| index.active_profile_id.clone());
+            let profile = index
+                .profiles
+                .iter_mut()
+                .find(|p| p.id == profile_id)
+                .ok_or_else(|| AppError::Other(format!("Profile {} not found", profile_id)))?;
+
+            profile
+                .skin_remaps
+                .retain(|remap| remap.champion_id != champion_id);
+
+            Ok(profile.clone())
+        })
+    }
+}
+
+fn normalize_skin_remap(remap: SkinRemap) -> AppResult<SkinRemap> {
+    if remap.target_skin_number == 0 {
+        return Err(AppError::Other(
+            "Target skin must be a non-default skin slot".to_string(),
+        ));
+    }
+
+    let champion_id = normalize_champion_id(&remap.champion_id)?;
+    let champion_name = remap.champion_name.trim().to_string();
+    if champion_name.is_empty() {
+        return Err(AppError::Other("Champion name cannot be empty".to_string()));
+    }
+
+    let target_skin_name = remap.target_skin_name.and_then(|name| {
+        let name = name.trim().to_string();
+        (!name.is_empty()).then_some(name)
+    });
+    let target_chroma_name = remap.target_chroma_name.and_then(|name| {
+        let name = name.trim().to_string();
+        (!name.is_empty()).then_some(name)
+    });
+
+    Ok(SkinRemap {
+        champion_id,
+        champion_name,
+        target_skin_number: remap.target_skin_number,
+        target_skin_name,
+        target_chroma_id: remap.target_chroma_id,
+        target_chroma_name,
+    })
+}
+
+fn normalize_champion_id(champion_id: &str) -> AppResult<String> {
+    let champion_id = champion_id.trim().to_ascii_lowercase();
+    if champion_id.is_empty() {
+        return Err(AppError::Other("Champion id cannot be empty".to_string()));
+    }
+    Ok(champion_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_skin_remap_trims_and_normalizes_fields() {
+        let remap = normalize_skin_remap(SkinRemap {
+            champion_id: " Ahri ".to_string(),
+            champion_name: " Ahri ".to_string(),
+            target_skin_number: 27,
+            target_skin_name: Some(" Star Guardian Ahri ".to_string()),
+            target_chroma_id: Some(103027),
+            target_chroma_name: Some(" Ruby ".to_string()),
+        })
+        .unwrap();
+
+        assert_eq!(remap.champion_id, "ahri");
+        assert_eq!(remap.champion_name, "Ahri");
+        assert_eq!(remap.target_skin_number, 27);
+        assert_eq!(
+            remap.target_skin_name,
+            Some("Star Guardian Ahri".to_string())
+        );
+        assert_eq!(remap.target_chroma_id, Some(103027));
+        assert_eq!(remap.target_chroma_name, Some("Ruby".to_string()));
+    }
+
+    #[test]
+    fn normalize_skin_remap_rejects_skin_zero() {
+        let err = normalize_skin_remap(SkinRemap {
+            champion_id: "ahri".to_string(),
+            champion_name: "Ahri".to_string(),
+            target_skin_number: 0,
+            target_skin_name: None,
+            target_chroma_id: None,
+            target_chroma_name: None,
+        });
+
+        assert!(err.is_err());
     }
 }

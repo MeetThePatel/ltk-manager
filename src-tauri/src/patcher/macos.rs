@@ -1,7 +1,9 @@
 use crate::error::{AppError, AppResult};
 use std::fs;
+use std::io::{Read, Write};
 #[cfg(ltk_macos_process_patcher_bundled)]
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,7 +14,10 @@ use tauri::{AppHandle, Manager};
 const HELPER_NAME: &str = "ltk_macos_process_patcher";
 const HELPER_PID_FILE: &str = "ltk_macos_process_patcher.pid";
 const HELPER_LOG_FILE: &str = "ltk_macos_process_patcher.log";
+const HELPER_SOCKET_FILE: &str = "ltk_macos_process_patcher.sock";
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
+const BROKER_START_TIMEOUT: Duration = Duration::from_secs(5);
+const BROKER_CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[cfg(ltk_macos_process_patcher_bundled)]
 const BUNDLED_PROCESS_PATCHER: &[u8] =
@@ -30,20 +35,20 @@ pub fn run_process_patcher_loop(
         overlay_root.display()
     );
 
-    let helper_process = spawn_process_patcher(app_handle, &helper, overlay_root)?;
+    let helper_process = ensure_process_patcher_broker(app_handle, &helper)?;
+    helper_process.start_patching(overlay_root)?;
     loop {
         if !helper_process.is_running() {
             let log_tail = helper_process.read_log_tail();
-            helper_process.cleanup();
             return Err(AppError::Other(format!(
-                "macOS process patcher exited unexpectedly. Recent helper log:\n{}",
+                "macOS process patcher broker exited unexpectedly. Recent helper log:\n{}",
                 log_tail
             )));
         }
 
         if stop_flag.load(Ordering::SeqCst) {
             tracing::info!("Stopping macOS process patcher");
-            helper_process.stop();
+            helper_process.stop_patching();
             return Ok(());
         }
 
@@ -53,13 +58,13 @@ pub fn run_process_patcher_loop(
 
 struct ProcessPatcherChild {
     pid: u32,
-    pid_file: PathBuf,
     log_file: PathBuf,
+    socket_file: PathBuf,
 }
 
 impl ProcessPatcherChild {
     fn is_running(&self) -> bool {
-        Command::new("/bin/ps")
+        let process_alive = Command::new("/bin/ps")
             .arg("-p")
             .arg(self.pid.to_string())
             .arg("-o")
@@ -69,18 +74,29 @@ impl ProcessPatcherChild {
                 output.status.success()
                     && String::from_utf8_lossy(&output.stdout).contains(HELPER_NAME)
             })
-            .unwrap_or(false)
+            .unwrap_or(false);
+        process_alive && send_broker_command(&self.socket_file, "ping").is_ok()
     }
 
-    fn stop(&self) {
-        if let Err(e) = stop_elevated_process(self.pid) {
-            tracing::warn!(error = ?e, "Failed to stop elevated macOS process patcher");
+    fn start_patching(&self, overlay_root: &Path) -> AppResult<()> {
+        let response = send_broker_command(
+            &self.socket_file,
+            &format!("start {}", overlay_root.display()),
+        )?;
+        if response.starts_with("OK ") {
+            Ok(())
+        } else {
+            Err(AppError::Other(format!(
+                "macOS process patcher broker rejected start command: {}",
+                response.trim()
+            )))
         }
-        self.cleanup();
     }
 
-    fn cleanup(&self) {
-        let _ = fs::remove_file(&self.pid_file);
+    fn stop_patching(&self) {
+        if let Err(e) = send_broker_command(&self.socket_file, "stop") {
+            tracing::warn!(error = ?e, "Failed to stop macOS process patcher broker");
+        }
     }
 
     fn read_log_tail(&self) -> String {
@@ -91,37 +107,52 @@ impl ProcessPatcherChild {
     }
 }
 
-fn spawn_process_patcher(
+fn ensure_process_patcher_broker(
     app_handle: &AppHandle,
     helper: &Path,
-    overlay_root: &Path,
 ) -> AppResult<ProcessPatcherChild> {
     let pid_file = process_patcher_pid_file(app_handle)?;
     let log_file = process_patcher_log_file(app_handle)?;
+    let socket_file = process_patcher_socket_file(app_handle)?;
+
+    if let Ok(pid) = read_pid_file(&pid_file) {
+        let child = ProcessPatcherChild {
+            pid,
+            log_file: log_file.clone(),
+            socket_file: socket_file.clone(),
+        };
+        if child.is_running() {
+            return Ok(child);
+        }
+    }
+
     let _ = fs::remove_file(&pid_file);
+    let _ = fs::remove_file(&socket_file);
     let _ = fs::remove_file(&log_file);
 
-    spawn_elevated_process_patcher(helper, overlay_root, &pid_file, &log_file)?;
+    spawn_elevated_process_patcher_broker(helper, &socket_file, &pid_file, &log_file)?;
     let pid = read_pid_file(&pid_file)?;
-    Ok(ProcessPatcherChild {
+    let child = ProcessPatcherChild {
         pid,
-        pid_file,
         log_file,
-    })
+        socket_file,
+    };
+    wait_for_broker_ready(&child)?;
+    Ok(child)
 }
 
-fn spawn_elevated_process_patcher(
+fn spawn_elevated_process_patcher_broker(
     helper: &Path,
-    overlay_root: &Path,
+    socket_file: &Path,
     pid_file: &Path,
     log_file: &Path,
 ) -> AppResult<()> {
     let parent_pid = std::process::id();
     let shell_command = format!(
-        "{} --parent-pid {} {} >> {} 2>&1 & printf %s $! > {}",
+        "{} --parent-pid {} --broker-socket {} >> {} 2>&1 & printf %s $! > {}",
         shell_quote_path(helper),
         parent_pid,
-        shell_quote_path(overlay_root),
+        shell_quote_path(socket_file),
         shell_quote_path(log_file),
         shell_quote_path(pid_file),
     );
@@ -156,32 +187,6 @@ fn spawn_elevated_process_patcher(
     }
 }
 
-fn stop_elevated_process(pid: u32) -> AppResult<()> {
-    let shell_command = format!(
-        "/bin/kill -TERM {pid} 2>/dev/null || true; /bin/sleep 0.2; /bin/kill -0 {pid} 2>/dev/null && /bin/kill -KILL {pid} 2>/dev/null || true",
-        pid = pid,
-    );
-    let script = format!(
-        "do shell script {} with administrator privileges",
-        applescript_string(&shell_command)
-    );
-
-    let status = Command::new("osascript")
-        .arg("-e")
-        .arg(script)
-        .status()
-        .map_err(|e| AppError::Other(format!("Failed to run elevated stop command: {}", e)))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(AppError::Other(format!(
-            "Elevated stop command exited with {}",
-            status
-        )))
-    }
-}
-
 fn read_pid_file(pid_file: &Path) -> AppResult<u32> {
     fs::read_to_string(pid_file)
         .map_err(|e| {
@@ -196,12 +201,82 @@ fn read_pid_file(pid_file: &Path) -> AppResult<u32> {
         .map_err(|e| AppError::Other(format!("Invalid macOS process patcher pid: {}", e)))
 }
 
+fn wait_for_broker_ready(child: &ProcessPatcherChild) -> AppResult<()> {
+    let started = std::time::Instant::now();
+    let mut last_error = None;
+    while started.elapsed() < BROKER_START_TIMEOUT {
+        match send_broker_command(&child.socket_file, "ping") {
+            Ok(response) if response.starts_with("OK ") => return Ok(()),
+            Ok(response) => {
+                last_error = Some(format!("unexpected response: {}", response.trim()));
+            }
+            Err(e) => {
+                last_error = Some(e.to_string());
+            }
+        }
+        if !process_is_running(child.pid) {
+            return Err(AppError::Other(format!(
+                "macOS process patcher broker exited during startup. Recent helper log:\n{}",
+                child.read_log_tail()
+            )));
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    Err(AppError::Other(format!(
+        "Timed out waiting for macOS process patcher broker socket {}. Last error: {}. Recent helper log:\n{}",
+        child.socket_file.display(),
+        last_error.unwrap_or_else(|| "<none>".to_string()),
+        child.read_log_tail()
+    )))
+}
+
+fn process_is_running(pid: u32) -> bool {
+    Command::new("/bin/ps")
+        .arg("-p")
+        .arg(pid.to_string())
+        .arg("-o")
+        .arg("command=")
+        .output()
+        .map(|output| {
+            output.status.success() && String::from_utf8_lossy(&output.stdout).contains(HELPER_NAME)
+        })
+        .unwrap_or(false)
+}
+
+fn send_broker_command(socket_file: &Path, command: &str) -> AppResult<String> {
+    let mut stream = UnixStream::connect(socket_file).map_err(|e| {
+        AppError::Other(format!(
+            "Failed to connect to macOS process patcher broker {}: {}",
+            socket_file.display(),
+            e
+        ))
+    })?;
+    stream.set_read_timeout(Some(BROKER_CONNECT_TIMEOUT))?;
+    stream.set_write_timeout(Some(BROKER_CONNECT_TIMEOUT))?;
+    stream.write_all(command.as_bytes())?;
+    stream.write_all(b"\n")?;
+    stream.shutdown(std::net::Shutdown::Write)?;
+
+    let mut response = String::new();
+    stream.read_to_string(&mut response)?;
+    if response.is_empty() {
+        return Err(AppError::Other(
+            "macOS process patcher broker returned an empty response".to_string(),
+        ));
+    }
+    Ok(response)
+}
+
 fn process_patcher_pid_file(app_handle: &AppHandle) -> AppResult<PathBuf> {
     Ok(process_patcher_helper_dir(app_handle)?.join(HELPER_PID_FILE))
 }
 
 fn process_patcher_log_file(app_handle: &AppHandle) -> AppResult<PathBuf> {
     Ok(process_patcher_helper_dir(app_handle)?.join(HELPER_LOG_FILE))
+}
+
+fn process_patcher_socket_file(app_handle: &AppHandle) -> AppResult<PathBuf> {
+    Ok(process_patcher_helper_dir(app_handle)?.join(HELPER_SOCKET_FILE))
 }
 
 fn process_patcher_helper_dir(app_handle: &AppHandle) -> AppResult<PathBuf> {

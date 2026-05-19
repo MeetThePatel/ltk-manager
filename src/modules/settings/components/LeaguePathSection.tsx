@@ -3,6 +3,7 @@ import { CircleAlert, CircleCheck, FolderOpen, Gamepad2, Loader2 } from "lucide-
 import { useEffect, useState } from "react";
 
 import { Button, Field, IconButton, SectionCard, Tooltip } from "@/components";
+import { usePlatformSupport } from "@/hooks/usePlatformSupport";
 import { api, type Settings } from "@/lib/tauri";
 import { unwrapForQuery } from "@/utils/query";
 
@@ -14,6 +15,8 @@ export interface SettingsSectionProps {
 export function LeaguePathSection({ settings, onSave }: SettingsSectionProps) {
   const [isDetecting, setIsDetecting] = useState(false);
   const [leaguePathValid, setLeaguePathValid] = useState<boolean | null>(null);
+  const { data: platform } = usePlatformSupport();
+  const isMacOS = platform?.os === "macos" || navigator.platform.toLowerCase().includes("mac");
 
   useEffect(() => {
     if (settings.leaguePath) {
@@ -50,8 +53,10 @@ export function LeaguePathSection({ settings, onSave }: SettingsSectionProps) {
   async function handleBrowse() {
     try {
       const selected = await open({
-        directory: true,
-        title: "Select League of Legends Installation",
+        directory: !isMacOS,
+        title: isMacOS ? "Select League of Legends App" : "Select League of Legends Installation",
+        defaultPath: isMacOS ? "/Applications" : undefined,
+        filters: isMacOS ? [{ name: "Applications", extensions: ["app"] }] : undefined,
       });
 
       if (selected) {
@@ -102,8 +107,9 @@ export function LeaguePathSection({ settings, onSave }: SettingsSectionProps) {
         </Button>
         {leaguePathValid === false && settings.leaguePath && (
           <p className="text-sm text-red-400">
-            Could not find League of Legends at this path. Make sure it points to the folder
-            containing the <code className="rounded bg-surface-700 px-1">Game</code> directory.
+            Could not find League of Legends at this path. Select the League app bundle or the
+            installation folder that contains the{" "}
+            <code className="rounded bg-surface-700 px-1">Game</code> directory.
           </p>
         )}
       </div>

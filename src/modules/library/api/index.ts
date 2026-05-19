@@ -31,6 +31,7 @@ export { useReorderMods } from "./useReorderMods";
 export { useRootModDnd } from "./useRootModDnd";
 export { useSetModLayers } from "./useSetModLayers";
 export { useSkinhackFlag } from "./useSkinhackFlag";
+export { useRemoveSkinRemap, useSetSkinRemap } from "./useSkinRemaps";
 export { useSortableModDnd } from "./useSortableModDnd";
 export { useSwitchProfile } from "./useSwitchProfile";
 export { useToggleMod } from "./useToggleMod";
@@ -44,9 +45,11 @@ export {
   foldersQueryOptions,
   installedModsQueryOptions,
   profilesQueryOptions,
+  skinRemapsQueryOptions,
   useActiveProfile,
   useFolderOrder,
   useFolders,
   useInstalledMods,
   useProfiles,
+  useSkinRemaps,
 } from "./queries";

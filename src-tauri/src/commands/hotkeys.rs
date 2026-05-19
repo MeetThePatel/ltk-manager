@@ -3,7 +3,7 @@ use crate::hotkeys::{HotkeyAction, HotkeyManager};
 use crate::mods::ModLibraryState;
 use crate::patcher::PatcherState;
 use crate::state::{save_settings_to_disk, SettingsState};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -306,7 +306,7 @@ struct LockfileData {
 /// Read and parse the League Client lockfile.
 /// Format: `LeagueClient:pid:port:password:https` (5-part) or `process:port:password:protocol` (4-part).
 fn read_lockfile(league_path: &Path) -> Option<LockfileData> {
-    let lockfile_path = league_path.join("lockfile");
+    let lockfile_path = resolve_lockfile_path(league_path);
 
     let content = match std::fs::read_to_string(&lockfile_path) {
         Ok(s) => s,
@@ -349,6 +349,25 @@ fn read_lockfile(league_path: &Path) -> Option<LockfileData> {
             None
         }
     }
+}
+
+fn resolve_lockfile_path(league_path: &Path) -> PathBuf {
+    let direct = league_path.join("lockfile");
+    if direct.exists() {
+        return direct;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let bundle_inner = league_path.join("Contents").join("LoL").join("lockfile");
+        if bundle_inner.exists()
+            || league_path.extension().and_then(|ext| ext.to_str()) == Some("app")
+        {
+            return bundle_inner;
+        }
+    }
+
+    direct
 }
 
 /// Attempt to reconnect to League via the LCU API (best-effort, non-fatal).
@@ -487,5 +506,33 @@ fn kill_league_process() {
         Err(e) => {
             tracing::warn!("Failed to spawn kill command: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_lockfile_path_prefers_direct_lockfile() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("lockfile"), "LeagueClient:1:2:pw:https").unwrap();
+
+        assert_eq!(
+            resolve_lockfile_path(dir.path()),
+            dir.path().join("lockfile")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn resolve_lockfile_path_uses_macos_app_inner_lol_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("League of Legends.app");
+        let inner = app.join("Contents").join("LoL");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(inner.join("lockfile"), "LeagueClient:1:2:pw:https").unwrap();
+
+        assert_eq!(resolve_lockfile_path(&app), inner.join("lockfile"));
     }
 }

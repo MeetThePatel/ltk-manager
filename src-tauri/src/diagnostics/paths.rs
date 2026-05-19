@@ -189,12 +189,7 @@ pub fn check_league_writability(ctx: &CheckCtx) -> Check {
             "League path not configured",
         );
     };
-    let game_dir = p.join("Game");
-    let target = if game_dir.exists() {
-        game_dir
-    } else {
-        p.clone()
-    };
+    let target = league_writability_probe_target(p);
     match probe_writable(&target) {
         Ok(()) => check_ok(
             "paths.league.writable",
@@ -220,6 +215,23 @@ pub fn check_league_writability(ctx: &CheckCtx) -> Check {
             c
         }
     }
+}
+
+fn league_writability_probe_target(path: &Path) -> PathBuf {
+    let game_dir = path.join("Game");
+    if game_dir.exists() {
+        return game_dir;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let bundle_game_dir = path.join("Contents").join("LoL").join("Game");
+        if bundle_game_dir.exists() {
+            return bundle_game_dir;
+        }
+    }
+
+    path.to_path_buf()
 }
 
 pub fn check_storage_path(ctx: &CheckCtx) -> Check {
@@ -455,5 +467,25 @@ mod tests {
     fn probe_writable_works_in_temp() {
         let dir = std::env::temp_dir();
         assert!(probe_writable(&dir).is_ok());
+    }
+
+    #[test]
+    fn league_writability_probe_target_uses_game_subdir() {
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path().join("Game");
+        std::fs::create_dir_all(&game_dir).unwrap();
+
+        assert_eq!(league_writability_probe_target(dir.path()), game_dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn league_writability_probe_target_uses_macos_app_game_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("League of Legends.app");
+        let game_dir = app.join("Contents").join("LoL").join("Game");
+        std::fs::create_dir_all(&game_dir).unwrap();
+
+        assert_eq!(league_writability_probe_target(&app), game_dir);
     }
 }

@@ -1,8 +1,10 @@
 use crate::error::{AppError, AppResult, IpcResult, MutexResultExt};
-use crate::mods::{ModLibraryState, Profile};
+use crate::mods::{ModLibraryState, Profile, SkinRemap};
 use crate::patcher::PatcherState;
 use crate::state::SettingsState;
 use tauri::State;
+
+use super::mods::reject_if_patcher_running;
 
 /// Get all profiles.
 #[tauri::command]
@@ -105,6 +107,56 @@ pub fn rename_mod_profile(
 
         let settings = settings.0.lock().mutex_err()?.clone();
         library.0.rename_profile(&settings, profile_id, new_name)
+    })();
+    result.into()
+}
+
+/// Get skin remaps for a profile. Defaults to the active profile when profile_id is null.
+#[tauri::command]
+pub fn get_skin_remaps(
+    profile_id: Option<String>,
+    library: State<ModLibraryState>,
+    settings: State<SettingsState>,
+) -> IpcResult<Vec<SkinRemap>> {
+    let result: AppResult<Vec<SkinRemap>> = (|| {
+        let settings = settings.0.lock().mutex_err()?.clone();
+        library.0.get_skin_remaps(&settings, profile_id)
+    })();
+    result.into()
+}
+
+/// Add or replace one champion skin remap. Defaults to the active profile when profile_id is null.
+#[tauri::command]
+pub fn set_skin_remap(
+    profile_id: Option<String>,
+    remap: SkinRemap,
+    library: State<ModLibraryState>,
+    settings: State<SettingsState>,
+    patcher: State<PatcherState>,
+) -> IpcResult<Profile> {
+    let result: AppResult<Profile> = (|| {
+        reject_if_patcher_running(&patcher)?;
+        let settings = settings.0.lock().mutex_err()?.clone();
+        library.0.set_skin_remap(&settings, profile_id, remap)
+    })();
+    result.into()
+}
+
+/// Remove one champion skin remap. Defaults to the active profile when profile_id is null.
+#[tauri::command]
+pub fn remove_skin_remap(
+    profile_id: Option<String>,
+    champion_id: String,
+    library: State<ModLibraryState>,
+    settings: State<SettingsState>,
+    patcher: State<PatcherState>,
+) -> IpcResult<Profile> {
+    let result: AppResult<Profile> = (|| {
+        reject_if_patcher_running(&patcher)?;
+        let settings = settings.0.lock().mutex_err()?.clone();
+        library
+            .0
+            .remove_skin_remap(&settings, profile_id, champion_id)
     })();
     result.into()
 }

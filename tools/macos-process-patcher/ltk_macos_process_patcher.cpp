@@ -11,6 +11,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -24,6 +25,10 @@
 #include <mach-o/fat.h>
 #include <mach-o/loader.h>
 #include <mach-o/nlist.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -231,6 +236,7 @@ struct Options {
     PatchMode mode = PatchMode::All;
     pid_t parent_pid = 0;
     const char* overlay_root = nullptr;
+    const char* broker_socket = nullptr;
 };
 
 struct Process {
@@ -627,7 +633,8 @@ static std::string normalized_prefix(const char* path_arg) {
 
 static void print_usage(const char* argv0) {
     std::cerr
-        << "usage: " << argv0 << " [--parent-pid <pid>] <overlay-root>\n";
+        << "usage: " << argv0 << " [--parent-pid <pid>] <overlay-root>\n"
+        << "       " << argv0 << " [--parent-pid <pid>] --broker-socket <path>\n";
 }
 
 static Options parse_options(int argc, char** argv) {
@@ -639,6 +646,11 @@ static Options parse_options(int argc, char** argv) {
                 throw std::runtime_error("missing --parent-pid value");
             }
             options.parent_pid = static_cast<pid_t>(std::stol(argv[++i]));
+        } else if (arg == "--broker-socket") {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("missing --broker-socket value");
+            }
+            options.broker_socket = argv[++i];
         } else if (!arg.empty() && arg[0] == '-') {
             throw std::runtime_error("unknown option: " + std::string(arg));
         } else if (!options.overlay_root) {
@@ -648,7 +660,10 @@ static Options parse_options(int argc, char** argv) {
         }
     }
 
-    if (!options.overlay_root) {
+    if (options.broker_socket && options.overlay_root) {
+        throw std::runtime_error("--broker-socket cannot be combined with an overlay root");
+    }
+    if (!options.broker_socket && !options.overlay_root) {
         throw std::runtime_error("missing overlay root");
     }
     return options;
@@ -664,9 +679,186 @@ static bool parent_is_alive(pid_t parent_pid) {
     return errno == EPERM;
 }
 
+struct BrokerState {
+    std::optional<std::string> prefix;
+    bool quit = false;
+    pid_t patched_pid = 0;
+};
+
+class BrokerSocket {
+public:
+    explicit BrokerSocket(const char* path) : path_(path) {
+        if (path_.empty()) {
+            throw std::runtime_error("broker socket path is empty");
+        }
+        if (path_.size() >= sizeof(sockaddr_un::sun_path)) {
+            throw std::runtime_error("broker socket path is too long");
+        }
+
+        fd_ = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (fd_ < 0) {
+            throw std::runtime_error("socket failed");
+        }
+
+        unlink(path_.c_str());
+
+        sockaddr_un addr = {};
+        addr.sun_family = AF_UNIX;
+        std::strncpy(addr.sun_path, path_.c_str(), sizeof(addr.sun_path) - 1);
+        if (bind(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+            throw std::runtime_error("bind broker socket failed");
+        }
+        chmod(path_.c_str(), 0666);
+        if (listen(fd_, 16) != 0) {
+            throw std::runtime_error("listen broker socket failed");
+        }
+
+        const int flags = fcntl(fd_, F_GETFL, 0);
+        if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) != 0) {
+            throw std::runtime_error("failed to set broker socket nonblocking");
+        }
+    }
+
+    BrokerSocket(const BrokerSocket&) = delete;
+    BrokerSocket& operator=(const BrokerSocket&) = delete;
+
+    ~BrokerSocket() {
+        if (fd_ >= 0) {
+            close(fd_);
+        }
+        unlink(path_.c_str());
+    }
+
+    void handle_commands(BrokerState& state) const {
+        for (;;) {
+            const int client = accept(fd_, nullptr, nullptr);
+            if (client < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    return;
+                }
+                std::cout << "broker accept failed: " << std::strerror(errno) << "\n" << std::flush;
+                return;
+            }
+            handle_client(client, state);
+            close(client);
+        }
+    }
+
+private:
+    void handle_client(int client, BrokerState& state) const {
+        std::array<char, 4096> buffer = {};
+        const ssize_t n = read(client, buffer.data(), buffer.size() - 1);
+        if (n <= 0) {
+            return;
+        }
+        std::string command(buffer.data(), static_cast<std::size_t>(n));
+        while (!command.empty() && (command.back() == '\n' || command.back() == '\r')) {
+            command.pop_back();
+        }
+
+        try {
+            if (command == "ping") {
+                write_response(client, "OK pong\n");
+            } else if (command == "stop") {
+                state.prefix.reset();
+                std::cout << "broker stopped patching\n" << std::flush;
+                write_response(client, "OK stopped\n");
+            } else if (command == "quit") {
+                state.quit = true;
+                write_response(client, "OK quitting\n");
+            } else if (command.rfind("start ", 0) == 0) {
+                const auto path = command.substr(6);
+                state.prefix = normalized_prefix(path.c_str());
+                std::cout << "broker started patching with overlay " << *state.prefix << "\n" << std::flush;
+                write_response(client, "OK started\n");
+            } else {
+                write_response(client, "ERR unknown command\n");
+            }
+        } catch (const std::exception& e) {
+            write_response(client, std::string("ERR ") + e.what() + "\n");
+        }
+    }
+
+    static void write_response(int client, const std::string& response) {
+        const char* data = response.data();
+        std::size_t remaining = response.size();
+        while (remaining > 0) {
+            const ssize_t n = write(client, data, remaining);
+            if (n <= 0) {
+                return;
+            }
+            data += n;
+            remaining -= static_cast<std::size_t>(n);
+        }
+    }
+
+    int fd_ = -1;
+    std::string path_;
+};
+
+static int run_broker(const Options& options) {
+    BrokerSocket broker(options.broker_socket);
+    BrokerState state;
+    bool printed_wait = false;
+
+    std::cout << "broker listening at " << options.broker_socket << "\n" << std::flush;
+
+    for (;;) {
+        broker.handle_commands(state);
+        if (state.quit) {
+            std::cout << "broker quit requested\n" << std::flush;
+            return 0;
+        }
+        if (!parent_is_alive(options.parent_pid)) {
+            std::cout << "parent process exited; stopping broker\n" << std::flush;
+            return 0;
+        }
+        if (!state.prefix) {
+            printed_wait = false;
+            std::this_thread::sleep_for(100ms);
+            continue;
+        }
+
+        const pid_t pid = find_league_pid();
+        if (!pid) {
+            state.patched_pid = 0;
+            if (!printed_wait) {
+                std::cout << "waiting for LeagueofLegends\n" << std::flush;
+                printed_wait = true;
+            }
+            std::this_thread::sleep_for(100ms);
+            continue;
+        }
+        printed_wait = false;
+
+        if (pid == state.patched_pid) {
+            std::this_thread::sleep_for(100ms);
+            continue;
+        }
+
+        try {
+            std::cout << "found LeagueofLegends pid=" << pid << "\n" << std::flush;
+            const auto exe = process_path(pid);
+            const auto file = read_file(exe);
+            const auto scan = scan_macho(file);
+            const Process process(pid);
+            patch_process(process, scan, *state.prefix);
+            state.patched_pid = pid;
+            std::cout << "patched LeagueofLegends pid=" << pid << "\n" << std::flush;
+        } catch (const std::exception& e) {
+            std::cout << "patch attempt failed: " << e.what() << "\n" << std::flush;
+            std::this_thread::sleep_for(100ms);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     try {
         const auto options = parse_options(argc, argv);
+        if (options.broker_socket) {
+            return run_broker(options);
+        }
+
         const auto prefix = normalized_prefix(options.overlay_root);
         bool printed_wait = false;
 
