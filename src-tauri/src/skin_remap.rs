@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use xxhash_rust::{xxh3::xxh3_64, xxh64::xxh64};
 
 const BASE_LAYER: &str = "base";
-const SKIN_REMAP_VERSION: u64 = 5;
+const SKIN_REMAP_VERSION: u64 = 8;
 
 pub struct SkinRemapContent {
     entries: HashMap<String, BTreeMap<Utf8PathBuf, Vec<u8>>>,
@@ -38,11 +38,11 @@ impl SkinRemapContent {
                 continue;
             }
 
-            let wad_name = format!("{champion}.wad.client");
-            let source_wad = champion_wad_path(&game_dir, champion);
-            let overrides = build_base_skin_overrides(&source_wad, champion, target_skin)?;
+            let overrides = build_base_skin_overrides(&game_dir, champion, target_skin)?;
 
-            entries.entry(wad_name).or_default().extend(overrides);
+            for (wad_name, wad_overrides) in overrides {
+                entries.entry(wad_name).or_default().extend(wad_overrides);
+            }
         }
 
         let fingerprint = skin_remap_fingerprint(&entries);
@@ -143,6 +143,45 @@ fn champion_wad_path(game_dir: &Path, champion_id: &str) -> PathBuf {
         .join(format!("{champion_id}.wad.client"))
 }
 
+fn champion_wad_dir(game_dir: &Path) -> PathBuf {
+    game_dir.join("DATA").join("FINAL").join("Champions")
+}
+
+fn champion_wad_name(champion_id: &str) -> String {
+    format!("{champion_id}.wad.client")
+}
+
+fn champion_locale_wad_paths(game_dir: &Path, champion_id: &str) -> AppResult<Vec<PathBuf>> {
+    let dir = champion_wad_dir(game_dir);
+    let prefix = format!("{}.", champion_id.to_ascii_lowercase());
+    let primary = champion_wad_name(champion_id).to_ascii_lowercase();
+    let mut paths = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(paths);
+    };
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let lower = file_name.to_ascii_lowercase();
+        if lower.starts_with(&prefix) && lower.ends_with(".wad.client") && lower != primary {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+fn wad_file_name(path: &Path) -> AppResult<String> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_ascii_lowercase())
+        .ok_or_else(|| AppError::Other(format!("Invalid WAD path: {}", path.display())))
+}
+
 fn skin_bin_path(champion_id: &str, skin_number: u32) -> Utf8PathBuf {
     Utf8PathBuf::from(format!(
         "data/characters/{}/skins/skin{}.bin",
@@ -152,14 +191,15 @@ fn skin_bin_path(champion_id: &str, skin_number: u32) -> Utf8PathBuf {
 }
 
 fn build_base_skin_overrides(
-    source_wad: &Path,
+    game_dir: &Path,
     champion_id: &str,
     target_skin: u32,
-) -> AppResult<BTreeMap<Utf8PathBuf, Vec<u8>>> {
-    let file = File::open(source_wad).map_err(|e| {
+) -> AppResult<HashMap<String, BTreeMap<Utf8PathBuf, Vec<u8>>>> {
+    let primary_wad_path = champion_wad_path(game_dir, champion_id);
+    let file = File::open(&primary_wad_path).map_err(|e| {
         AppError::Other(format!(
             "Failed to open champion WAD {}: {}",
-            source_wad.display(),
+            primary_wad_path.display(),
             e
         ))
     })?;
@@ -169,19 +209,53 @@ fn build_base_skin_overrides(
         AppError::Other(format!(
             "Could not find skin bin {} in {}",
             source_path,
-            source_wad.display()
+            primary_wad_path.display()
         ))
     })?;
     let rewrite = rewrite_skin_to_base(champion_id, target_skin, source_bytes)?;
 
-    let mut overrides = BTreeMap::new();
-    overrides.insert(skin_bin_path(champion_id, 0), rewrite.bin_bytes);
+    let primary_wad_name = wad_file_name(&primary_wad_path)?;
+    let mut overrides: HashMap<String, BTreeMap<Utf8PathBuf, Vec<u8>>> = HashMap::new();
+    overrides
+        .entry(primary_wad_name.clone())
+        .or_default()
+        .insert(skin_bin_path(champion_id, 0), rewrite.bin_bytes);
+
+    let mut source_wads = vec![MountedSourceWad {
+        name: primary_wad_name,
+        wad,
+    }];
+    for path in champion_locale_wad_paths(game_dir, champion_id)? {
+        let file = File::open(&path).map_err(|e| {
+            AppError::Other(format!(
+                "Failed to open champion locale WAD {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+        source_wads.push(MountedSourceWad {
+            name: wad_file_name(&path)?,
+            wad: ltk_wad::Wad::mount(file)?,
+        });
+    }
+
     for (source_path, target_path) in rewrite.linked_chunks {
-        if let Some(bytes) = read_wad_chunk_from_mounted(&mut wad, &source_path)? {
-            overrides.insert(target_path, bytes);
+        for source_wad in &mut source_wads {
+            if let Some(bytes) = read_wad_chunk_from_mounted(&mut source_wad.wad, &source_path)? {
+                overrides
+                    .entry(source_wad.name.clone())
+                    .or_default()
+                    .insert(target_path.clone(), bytes);
+                break;
+            }
         }
     }
     Ok(overrides)
+}
+
+struct MountedSourceWad<TSource: Read + Seek> {
+    name: String,
+    wad: ltk_wad::Wad<TSource>,
 }
 
 fn read_wad_chunk_from_mounted<TSource: Read + Seek>(
@@ -240,6 +314,7 @@ fn rewrite_skin_to_base(
     for object in bin.objects.values_mut() {
         for value in object.properties.values_mut() {
             rewrite_property_skin_refs(
+                champion_id,
                 value,
                 &object_hash_rewrites,
                 &replacements,
@@ -292,6 +367,7 @@ impl SkinTokenReplacements {
 }
 
 fn rewrite_property_skin_refs(
+    champion_id: &str,
     value: &mut PropertyValueEnum<NoMeta>,
     object_hash_rewrites: &HashMap<u32, u32>,
     replacements: &SkinTokenReplacements,
@@ -299,7 +375,7 @@ fn rewrite_property_skin_refs(
 ) {
     match value {
         PropertyValueEnum::String(value) => {
-            rewrite_string_skin_refs(&mut value.value, replacements, linked_chunks);
+            rewrite_string_skin_refs(champion_id, &mut value.value, replacements, linked_chunks);
         }
         PropertyValueEnum::Hash(value) => {
             if let Some(target_hash) = object_hash_rewrites.get(&value.value) {
@@ -312,10 +388,17 @@ fn rewrite_property_skin_refs(
             }
         }
         PropertyValueEnum::Struct(value) => {
-            rewrite_struct_skin_refs(value, object_hash_rewrites, replacements, linked_chunks);
+            rewrite_struct_skin_refs(
+                champion_id,
+                value,
+                object_hash_rewrites,
+                replacements,
+                linked_chunks,
+            );
         }
         PropertyValueEnum::Embedded(value) => {
             rewrite_struct_skin_refs(
+                champion_id,
                 &mut value.0,
                 object_hash_rewrites,
                 replacements,
@@ -323,10 +406,17 @@ fn rewrite_property_skin_refs(
             );
         }
         PropertyValueEnum::Container(value) => {
-            rewrite_container_skin_refs(value, object_hash_rewrites, replacements, linked_chunks);
+            rewrite_container_skin_refs(
+                champion_id,
+                value,
+                object_hash_rewrites,
+                replacements,
+                linked_chunks,
+            );
         }
         PropertyValueEnum::UnorderedContainer(value) => {
             rewrite_container_skin_refs(
+                champion_id,
                 &mut value.0,
                 object_hash_rewrites,
                 replacements,
@@ -334,7 +424,13 @@ fn rewrite_property_skin_refs(
             );
         }
         PropertyValueEnum::Optional(value) => {
-            rewrite_optional_skin_refs(value, object_hash_rewrites, replacements, linked_chunks);
+            rewrite_optional_skin_refs(
+                champion_id,
+                value,
+                object_hash_rewrites,
+                replacements,
+                linked_chunks,
+            );
         }
         _ => {}
     }
@@ -431,17 +527,25 @@ fn rewrite_optional_wad_chunk_links(
 }
 
 fn rewrite_struct_skin_refs(
+    champion_id: &str,
     value: &mut values::Struct<NoMeta>,
     object_hash_rewrites: &HashMap<u32, u32>,
     replacements: &SkinTokenReplacements,
     linked_chunks: &mut BTreeMap<Utf8PathBuf, Utf8PathBuf>,
 ) {
     for value in value.properties.values_mut() {
-        rewrite_property_skin_refs(value, object_hash_rewrites, replacements, linked_chunks);
+        rewrite_property_skin_refs(
+            champion_id,
+            value,
+            object_hash_rewrites,
+            replacements,
+            linked_chunks,
+        );
     }
 }
 
 fn rewrite_container_skin_refs(
+    champion_id: &str,
     value: &mut values::Container<NoMeta>,
     object_hash_rewrites: &HashMap<u32, u32>,
     replacements: &SkinTokenReplacements,
@@ -450,7 +554,7 @@ fn rewrite_container_skin_refs(
     match value {
         values::Container::String { items, .. } => {
             for item in items {
-                rewrite_string_skin_refs(&mut item.value, replacements, linked_chunks);
+                rewrite_string_skin_refs(champion_id, &mut item.value, replacements, linked_chunks);
             }
         }
         values::Container::Hash { items, .. } => {
@@ -469,12 +573,19 @@ fn rewrite_container_skin_refs(
         }
         values::Container::Struct { items, .. } => {
             for item in items {
-                rewrite_struct_skin_refs(item, object_hash_rewrites, replacements, linked_chunks);
+                rewrite_struct_skin_refs(
+                    champion_id,
+                    item,
+                    object_hash_rewrites,
+                    replacements,
+                    linked_chunks,
+                );
             }
         }
         values::Container::Embedded { items, .. } => {
             for item in items {
                 rewrite_struct_skin_refs(
+                    champion_id,
                     &mut item.0,
                     object_hash_rewrites,
                     replacements,
@@ -487,6 +598,7 @@ fn rewrite_container_skin_refs(
 }
 
 fn rewrite_optional_skin_refs(
+    champion_id: &str,
     value: &mut values::Optional<NoMeta>,
     object_hash_rewrites: &HashMap<u32, u32>,
     replacements: &SkinTokenReplacements,
@@ -496,7 +608,7 @@ fn rewrite_optional_skin_refs(
         values::Optional::String {
             value: Some(value), ..
         } => {
-            rewrite_string_skin_refs(&mut value.value, replacements, linked_chunks);
+            rewrite_string_skin_refs(champion_id, &mut value.value, replacements, linked_chunks);
         }
         values::Optional::Hash {
             value: Some(value), ..
@@ -515,12 +627,19 @@ fn rewrite_optional_skin_refs(
         values::Optional::Struct {
             value: Some(value), ..
         } => {
-            rewrite_struct_skin_refs(value, object_hash_rewrites, replacements, linked_chunks);
+            rewrite_struct_skin_refs(
+                champion_id,
+                value,
+                object_hash_rewrites,
+                replacements,
+                linked_chunks,
+            );
         }
         values::Optional::Embedded {
             value: Some(value), ..
         } => {
             rewrite_struct_skin_refs(
+                champion_id,
                 &mut value.0,
                 object_hash_rewrites,
                 replacements,
@@ -532,10 +651,14 @@ fn rewrite_optional_skin_refs(
 }
 
 fn rewrite_string_skin_refs(
+    champion_id: &str,
     value: &mut String,
     replacements: &SkinTokenReplacements,
     linked_chunks: &mut BTreeMap<Utf8PathBuf, Utf8PathBuf>,
 ) {
+    if is_unscoped_runtime_identifier(champion_id, value) {
+        return;
+    }
     let Some(rewritten) = replace_skin_tokens(value, replacements) else {
         return;
     };
@@ -591,6 +714,20 @@ fn skin_chunk_path_pair(source: &str, target: &str) -> Option<(Utf8PathBuf, Utf8
         return None;
     }
     Some((normalize_wad_path(source)?, normalize_wad_path(target)?))
+}
+
+fn is_unscoped_runtime_identifier(champion_id: &str, value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    let champion = champion_id.to_ascii_lowercase();
+    let is_identifier = !lower.contains('/') && !lower.contains('\\');
+    lower.contains("wwise")
+        || lower.starts_with("play_sfx_")
+        || lower.starts_with("stop_sfx_")
+        || lower.starts_with("play_vo_")
+        || lower.starts_with("stop_vo_")
+        || (is_identifier && lower.starts_with(&format!("{champion}skin")))
+        || (is_identifier
+            && (lower.contains("_sfx") || lower.contains("_vo") || lower.contains("_audio")))
 }
 
 fn normalize_wad_path(path: &str) -> Option<Utf8PathBuf> {
@@ -666,6 +803,47 @@ mod tests {
         let mut output = Cursor::new(Vec::new());
         bin.to_writer(&mut output).unwrap();
         output.into_inner()
+    }
+
+    fn sample_skin_bin_with_strings(
+        champion_id: &str,
+        skin_number: u32,
+        strings: &[(&str, &str)],
+    ) -> Vec<u8> {
+        let mut object = BinObject::<NoMeta>::builder(
+            skin_object_hash(champion_id, skin_number, None),
+            ltk_hash::fnv1a::hash_lower("SkinCharacterDataProperties"),
+        );
+        for (name, value) in strings {
+            object = object.property(
+                ltk_hash::fnv1a::hash_lower(name),
+                values::String::from(*value),
+            );
+        }
+        let bin = Bin::new([object.build()], ["DATA/Characters/Test/Test.bin"]);
+        let mut output = Cursor::new(Vec::new());
+        bin.to_writer(&mut output).unwrap();
+        output.into_inner()
+    }
+
+    fn write_test_wad(path: &Path, chunks: Vec<(&str, Vec<u8>)>) {
+        let mut builder = ltk_wad::WadBuilder::default();
+        let mut chunk_bytes = HashMap::new();
+        for (chunk_path, bytes) in chunks {
+            builder = builder.with_chunk(ltk_wad::WadChunkBuilder::default().with_path(chunk_path));
+            chunk_bytes.insert(wad_path_hash(chunk_path), bytes);
+        }
+
+        let mut wad_data = Cursor::new(Vec::new());
+        builder
+            .build_to_writer(&mut wad_data, |path_hash, cursor| {
+                cursor
+                    .get_mut()
+                    .extend_from_slice(chunk_bytes.get(&path_hash).unwrap());
+                Ok(())
+            })
+            .unwrap();
+        std::fs::write(path, wad_data.into_inner()).unwrap();
     }
 
     #[test]
@@ -755,6 +933,121 @@ mod tests {
     }
 
     #[test]
+    fn rewrite_skin_refs_preserves_wwise_identifiers() {
+        let audio_path_property = ltk_hash::fnv1a::hash_lower("audioPath");
+        let bank_property = ltk_hash::fnv1a::hash_lower("audioBank");
+        let event_property = ltk_hash::fnv1a::hash_lower("audioEvent");
+        let skin_name_property = ltk_hash::fnv1a::hash_lower("championSkinName");
+        let source_path =
+            "ASSETS/Sounds/Wwise2016/VO/en_US/Characters/Ahri/Skins/Skin27/Ahri_Skin27_VO_audio.bnk";
+        let event = "Play_vo_AhriSkin27_Move2DStandard";
+        let bank = "Ahri_Skin27_VO";
+        let skin_name = "AhriSkin27";
+        let bytes = sample_skin_bin_with_strings(
+            "Ahri",
+            27,
+            &[
+                ("audioPath", source_path),
+                ("audioBank", bank),
+                ("audioEvent", event),
+                ("championSkinName", skin_name),
+            ],
+        );
+
+        let rewrite = rewrite_skin_to_base("Ahri", 27, bytes).unwrap();
+        let bin = Bin::from_reader(&mut Cursor::new(rewrite.bin_bytes)).unwrap();
+        let object = bin.get_object(skin_object_hash("Ahri", 0, None)).unwrap();
+
+        assert_eq!(
+            object.get_property(audio_path_property).unwrap(),
+            &PropertyValueEnum::String(values::String::from(source_path))
+        );
+        assert_eq!(
+            object.get_property(bank_property).unwrap(),
+            &PropertyValueEnum::String(values::String::from(bank))
+        );
+        assert_eq!(
+            object.get_property(event_property).unwrap(),
+            &PropertyValueEnum::String(values::String::from(event))
+        );
+        assert_eq!(
+            object.get_property(skin_name_property).unwrap(),
+            &PropertyValueEnum::String(values::String::from(skin_name))
+        );
+        assert!(rewrite.linked_chunks.is_empty());
+    }
+
+    #[test]
+    fn skin_remap_content_routes_linked_chunks_from_locale_wads() {
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path();
+        let champions_dir = game_dir.join("DATA").join("FINAL").join("Champions");
+        std::fs::create_dir_all(&champions_dir).unwrap();
+        let primary_wad_path = champions_dir.join("Ahri.wad.client");
+        let locale_wad_path = champions_dir.join("Ahri.en_US.wad.client");
+        let source_locale_path =
+            "assets/characters/ahri/skins/skin27/particles/ahri_skin27_locale.tex";
+        let target_locale_path =
+            "assets/characters/ahri/skins/skin0/particles/ahri_skin0_locale.tex";
+
+        write_test_wad(
+            &primary_wad_path,
+            vec![(
+                "data/characters/ahri/skins/skin27.bin",
+                sample_skin_bin_with_strings(
+                    "Ahri",
+                    27,
+                    &[(
+                        "localizedParticlePath",
+                        "ASSETS/Characters/Ahri/Skins/Skin27/Particles/Ahri_Skin27_Locale.tex",
+                    )],
+                ),
+            )],
+        );
+        write_test_wad(
+            &locale_wad_path,
+            vec![(source_locale_path, b"localized-particle".to_vec())],
+        );
+
+        let mut content = SkinRemapContent::new(
+            game_dir.to_path_buf(),
+            vec![SkinRemap {
+                champion_id: "Ahri".to_string(),
+                champion_name: "Ahri".to_string(),
+                target_skin_number: 27,
+                target_skin_name: Some("Spirit Blossom Ahri".to_string()),
+                target_chroma_id: None,
+                target_chroma_name: None,
+            }],
+        )
+        .unwrap();
+
+        let mut wads = content.list_layer_wads(BASE_LAYER).unwrap();
+        wads.sort();
+        assert_eq!(wads, vec!["ahri.en_us.wad.client", "ahri.wad.client"]);
+
+        let primary_overrides = content
+            .read_wad_overrides(BASE_LAYER, "ahri.wad.client")
+            .unwrap();
+        assert_eq!(primary_overrides.len(), 1);
+        assert_eq!(
+            primary_overrides[0].0.as_str(),
+            "data/characters/ahri/skins/skin0.bin"
+        );
+
+        let locale_overrides = content
+            .read_wad_overrides(BASE_LAYER, "ahri.en_us.wad.client")
+            .unwrap();
+        assert_eq!(
+            locale_overrides,
+            vec![(
+                Utf8PathBuf::from(target_locale_path),
+                b"localized-particle".to_vec()
+            )]
+        );
+    }
+
+    #[test]
     fn skin_remap_content_uses_chroma_id_as_target_skin_slot() {
         let dir = tempfile::tempdir().unwrap();
         let game_dir = dir.path();
@@ -790,7 +1083,7 @@ mod tests {
         .unwrap();
 
         let overrides = content
-            .read_wad_overrides(BASE_LAYER, "Ahri.wad.client")
+            .read_wad_overrides(BASE_LAYER, "ahri.wad.client")
             .unwrap();
         assert_eq!(overrides.len(), 1);
         assert_eq!(
