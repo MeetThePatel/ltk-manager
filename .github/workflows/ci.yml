@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [sneaky-sneaky]
   push:
-    branches: [main]
+    branches: [sneaky-sneaky]
 
 env:
   CARGO_TERM_COLOR: always
@@ -81,3 +81,37 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with: { components: rustfmt }
       - run: cargo fmt --all -- --check
+
+  build-windows-artifacts:
+    name: Build Windows Artifacts
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: pnpm/action-setup@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-windows-artifacts
+          cache-on-failure: true
+      - run: pnpm install --frozen-lockfile
+      - name: Disable release signing
+        shell: bash
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = 'src-tauri/tauri.conf.json';
+            const conf = JSON.parse(fs.readFileSync(path, 'utf8'));
+            delete conf.bundle.windows.signCommand;
+            conf.bundle.createUpdaterArtifacts = false;
+            fs.writeFileSync(path, JSON.stringify(conf, null, 2) + '\n');
+          "
+      - run: pnpm tauri build --verbose
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ltk-manager-windows
+          path: target/release/bundle/**
+          if-no-files-found: error

@@ -4,21 +4,25 @@ pub mod macos;
 pub mod runner;
 
 use crate::error::AppResult;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use serde::Serialize;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use tauri::AppHandle;
 use ts_rs::TS;
 
 #[cfg(target_os = "windows")]
 use self::api::PATCHER_DLL_NAME;
 #[cfg(target_os = "windows")]
-use self::runner::{run_legacy_patcher_loop, LegacyPatcherLoopError, DEFAULT_HOOK_TIMEOUT_MS};
-#[cfg(target_os = "windows")]
 use crate::error::AppError;
+#[cfg(target_os = "windows")]
+use crate::legacy_patcher::runner::{
+    run_legacy_patcher_loop, LegacyPatcherLoopError, DEFAULT_HOOK_TIMEOUT_MS,
+};
 #[cfg(target_os = "windows")]
 use tauri::Manager;
 
@@ -94,7 +98,9 @@ impl Default for PatcherStateInner {
 }
 
 pub(crate) struct PlatformPatcherConfig<'a> {
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     pub app_handle: &'a AppHandle,
+    #[cfg(target_os = "macos")]
     pub overlay_root: &'a Path,
     #[cfg(target_os = "windows")]
     pub overlay_root_str: &'a str,
@@ -104,6 +110,7 @@ pub(crate) struct PlatformPatcherConfig<'a> {
     pub timeout_ms: Option<u32>,
     #[cfg(target_os = "windows")]
     pub flags: Option<u64>,
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     pub stop_flag: &'a AtomicBool,
 }
 

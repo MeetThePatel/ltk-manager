@@ -217,7 +217,9 @@ pub(crate) fn start_patcher_inner(
         let _ = crate::tray::set_tray_state(app_handle_thread.clone(), on_state);
 
         match run_platform_patcher_loop(PlatformPatcherConfig {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             app_handle: &app_handle_thread,
+            #[cfg(target_os = "macos")]
             overlay_root: &overlay_root,
             #[cfg(target_os = "windows")]
             overlay_root_str: &overlay_root_str,
@@ -227,6 +229,7 @@ pub(crate) fn start_patcher_inner(
             timeout_ms,
             #[cfg(target_os = "windows")]
             flags,
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             stop_flag: &stop_flag,
         }) {
             Ok(()) => tracing::info!("Patcher loop completed successfully"),
