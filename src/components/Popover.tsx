@@ -21,7 +21,7 @@ export interface PopoverTriggerProps extends Omit<BasePopover.Trigger.Props, "cl
 export const PopoverTrigger = forwardRef<HTMLButtonElement, PopoverTriggerProps>(
   ({ className, children, ...props }, ref) => {
     return (
-      <BasePopover.Trigger ref={ref} className={className} {...props}>
+      <BasePopover.Trigger ref={ref} className={twMerge("cursor-pointer", className)} {...props}>
         {children}
       </BasePopover.Trigger>
     );

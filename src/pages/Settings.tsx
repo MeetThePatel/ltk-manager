@@ -6,6 +6,7 @@ import {
   Palette,
   Settings as SettingsIcon,
   ShieldAlert,
+  Stethoscope,
   Users,
 } from "lucide-react";
 
@@ -22,10 +23,12 @@ import {
   useSettings,
 } from "@/modules/settings";
 
+import { Diagnostics } from "./Diagnostics";
+
 const routeApi = getRouteApi("/settings");
 
 export function Settings() {
-  const { firstRun } = routeApi.useSearch();
+  const { firstRun, tab } = routeApi.useSearch();
   const { data: settings, isLoading } = useSettings();
   const { data: appInfo } = useAppInfo();
   const saveSettingsMutation = useSaveSettings();
@@ -48,7 +51,10 @@ export function Settings() {
         <h2 className="text-xl font-semibold text-surface-100">Settings</h2>
       </header>
 
-      <Tabs.Root defaultValue="general" className="flex min-h-0 flex-1 flex-row">
+      <Tabs.Root
+        defaultValue={firstRun ? "general" : tab || "general"}
+        className="flex min-h-0 flex-1 flex-row"
+      >
         <Tabs.List
           variant="pills"
           className="w-52 shrink-0 flex-col items-stretch rounded-none border-r border-surface-700/50 bg-surface-950/60 p-3"
@@ -95,6 +101,14 @@ export function Settings() {
           </Tabs.Tab>
           <Tabs.Tab
             variant="pills"
+            value="diagnostics"
+            className="flex items-center gap-2.5 text-left data-active:bg-accent-500/15 data-active:text-accent-300"
+          >
+            <Stethoscope className="h-4 w-4 shrink-0" />
+            Diagnostics
+          </Tabs.Tab>
+          <Tabs.Tab
+            variant="pills"
             value="about"
             className="flex items-center gap-2.5 text-left data-active:bg-accent-500/15 data-active:text-accent-300"
           >
@@ -134,6 +148,10 @@ export function Settings() {
 
           <Tabs.Panel value="appearance" className="mx-auto max-w-2xl p-6">
             <AppearanceSection settings={settings} onSave={saveSettings} />
+          </Tabs.Panel>
+
+          <Tabs.Panel value="diagnostics" className="mx-auto max-w-4xl p-6">
+            <Diagnostics />
           </Tabs.Panel>
 
           <Tabs.Panel value="about" className="mx-auto max-w-2xl p-6">

@@ -1,11 +1,8 @@
 import { useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
-import { useToast } from "@/components";
-import { useHddWarning, usePlatformSupport } from "@/hooks";
-import { api } from "@/lib/tauri";
+import { usePlatformSupport } from "@/hooks";
 import {
-  checkModForSkinhack,
   DragDropOverlay,
   ImportProgressDialog,
   LibraryContent,
@@ -14,16 +11,9 @@ import {
   useInstalledMods,
   useLibraryActions,
   useModFileDrop,
-  useSkinRemaps,
 } from "@/modules/library";
 import { MigrationBanner, MigrationWizardDialog } from "@/modules/migration";
-import {
-  PatcherUnsupported,
-  StatusBar,
-  usePatcherStatus,
-  useStartPatcher,
-  useStopPatcher,
-} from "@/modules/patcher";
+import { PatcherUnsupported, StatusBar, usePatcherStatus } from "@/modules/patcher";
 import { useSaveSettings, useSettings } from "@/modules/settings";
 
 interface LibraryProps {
@@ -40,77 +30,19 @@ export function Library({ folderId }: LibraryProps = {}) {
   const { data: mods = [], isLoading, error } = useInstalledMods();
   const actions = useLibraryActions();
   const isDragOver = useModFileDrop(actions.handleBulkInstallFiles);
-  const toast = useToast();
 
   const { data: settings } = useSettings();
   const saveSettings = useSaveSettings();
 
   const { data: patcherStatus } = usePatcherStatus();
-  const { data: skinRemaps = [] } = useSkinRemaps();
-  const startPatcher = useStartPatcher();
-  const stopPatcher = useStopPatcher();
-  const maybeShowHddWarning = useHddWarning();
-
-  const isStarting = patcherStatus?.phase === "building";
   const isPatcherActive = patcherStatus?.running ?? false;
 
   const filterOptions = useFilterOptions(mods);
-  const hasEnabledMods = mods.some((m) => m.enabled);
-  const hasPatcherInputs = hasEnabledMods || skinRemaps.length > 0;
 
   useHotkeys("ctrl+i", () => actions.handleInstallMod(), {
     preventDefault: true,
     enabled: !isPatcherActive,
   });
-  useHotkeys(
-    "ctrl+p",
-    () => {
-      if (patcherStatus?.running) {
-        handleStopPatcher();
-      } else {
-        handleStartPatcher();
-      }
-    },
-    { preventDefault: true },
-  );
-
-  async function handleStartPatcher() {
-    // Check enabled mods for skinhacks and force-disable any flagged ones
-    const enabledMods = mods.filter((m) => m.enabled);
-    const flaggedMods = enabledMods.filter((m) => checkModForSkinhack(m) != null);
-
-    for (const mod of flaggedMods) {
-      await api.toggleMod(mod.id, false);
-      toast.warning(
-        "Skinhack Excluded",
-        `"${mod.displayName}" was detected as a skinhack and won't be loaded`,
-      );
-    }
-
-    // If all enabled mods were flagged, don't start the patcher
-    if (enabledMods.length > 0 && flaggedMods.length >= enabledMods.length) {
-      return;
-    }
-
-    await maybeShowHddWarning();
-
-    startPatcher.mutate(
-      {},
-      {
-        onError: (error) => {
-          console.error("Failed to start patcher:", error.message);
-        },
-      },
-    );
-  }
-
-  function handleStopPatcher() {
-    stopPatcher.mutate(undefined, {
-      onError: (error) => {
-        console.error("Failed to stop patcher:", error.message);
-      },
-    });
-  }
 
   function handleDismissMigration() {
     if (!settings) return;
@@ -135,19 +67,6 @@ export function Library({ folderId }: LibraryProps = {}) {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         actions={actions}
-        patcher={
-          patcherAvailable
-            ? {
-                status: patcherStatus,
-                isStarting: isStarting,
-                isStopping: stopPatcher.isPending,
-                onStart: handleStartPatcher,
-                onStop: handleStopPatcher,
-              }
-            : undefined
-        }
-        hasEnabledMods={hasPatcherInputs}
-        isLoading={isLoading}
         isPatcherActive={isPatcherActive}
         filterOptions={filterOptions}
       />

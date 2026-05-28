@@ -66,11 +66,11 @@ export function NotificationCenter() {
     >
       <Popover.Trigger
         aria-label="Notifications"
-        className="relative flex h-full items-center px-3 text-surface-400 transition-colors hover:text-surface-200"
+        className="relative inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md bg-transparent text-surface-400 transition-colors duration-150 select-none hover:bg-surface-700 hover:text-surface-200 active:bg-surface-800"
       >
         <Bell className="h-4 w-4" />
         {unreadCount > 0 && (
-          <span className="absolute top-1.5 right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-500 px-1 text-[10px] font-bold text-white">
+          <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-500 px-1 text-[10px] font-bold text-white">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}

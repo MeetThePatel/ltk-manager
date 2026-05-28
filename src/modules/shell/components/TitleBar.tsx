@@ -1,26 +1,17 @@
 import { Link } from "@tanstack/react-router";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open } from "@tauri-apps/plugin-shell";
 import type { LucideIcon } from "lucide-react";
-import {
-  Accessibility,
-  FolderOpen,
-  Hammer,
-  Library,
-  Minus,
-  Settings,
-  Shirt,
-  Square,
-  Stethoscope,
-  X,
-} from "lucide-react";
+import { FolderOpen, Hammer, Library, Minus, Play, Settings, Shirt, Square, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
 import { twMerge } from "tailwind-merge";
 
-import { IconButton, Separator, Tooltip, useToast } from "@/components";
-import { usePlatformSupport } from "@/hooks";
+import { Button, IconButton, Kbd, Separator, Tooltip, useToast } from "@/components";
+import { useHddWarning,usePlatformSupport } from "@/hooks";
 import { api, type AppInfo, unwrap } from "@/lib/tauri";
-import { ProfileSelector } from "@/modules/library";
+import { ProfileSelector,useInstalledMods, useSkinRemaps } from "@/modules/library";
+import { usePatcherStatus, useStartPatcher, useStopPatcher } from "@/modules/patcher";
+import { useSettings } from "@/modules/settings";
 
 import { NotificationCenter } from "./NotificationCenter";
 
@@ -32,7 +23,6 @@ const navItems = [
 
 const linkBaseClass =
   "relative flex h-full items-center gap-1.5 px-3 text-sm font-medium transition-colors";
-const settingsLinkBase = "relative flex h-full items-center px-3 transition-colors";
 const activeLinkClass = "text-accent-400";
 const inactiveLinkClass = "text-surface-400 hover:text-surface-200";
 
@@ -69,18 +59,6 @@ function NavLink({
   );
 }
 
-function buildBugReportUrl(appInfo: AppInfo | undefined): string {
-  const base = "https://github.com/LeagueToolkit/ltk-manager/issues/new?template=bug_report.yml";
-  if (!appInfo) return base;
-
-  const params = new URLSearchParams();
-  params.set("template", "bug_report.yml");
-  params.set("version", appInfo.version);
-  params.set("os", `${appInfo.os} ${appInfo.arch}`);
-
-  return `https://github.com/LeagueToolkit/ltk-manager/issues/new?${params.toString()}`;
-}
-
 interface TitleBarProps {
   title?: string;
   appInfo?: AppInfo;
@@ -91,10 +69,60 @@ export function TitleBar({ title = "LTK Manager", appInfo }: TitleBarProps) {
   const isMacOS = platform?.os === "macos";
 
   const version = appInfo?.version;
-  const bugReportUrl = buildBugReportUrl(appInfo);
   const [isMaximized, setIsMaximized] = useState(false);
   const appWindow = getCurrentWindow();
   const toast = useToast();
+
+  const { data: settings } = useSettings();
+  const { data: mods = [] } = useInstalledMods();
+  const { data: skinRemaps = [] } = useSkinRemaps();
+  const { data: patcherStatus } = usePatcherStatus();
+  const startPatcher = useStartPatcher();
+  const stopPatcher = useStopPatcher();
+  const maybeShowHddWarning = useHddWarning();
+
+  const isStarting = patcherStatus?.phase === "building";
+  const isPatcherActive = patcherStatus?.running ?? false;
+  const hasPatcherInputs = mods.some((m) => m.enabled) || skinRemaps.length > 0;
+  const patcherAvailable = platform?.patcherAvailable ?? true;
+
+  async function handleStartPatcher() {
+    if (!settings?.leaguePath) {
+      toast.error("League path not configured", "Configure it in settings first.");
+      return;
+    }
+
+    await maybeShowHddWarning();
+
+    startPatcher.mutate(
+      {},
+      {
+        onError: (error) => {
+          console.error("Failed to start patcher:", error.message);
+        },
+      },
+    );
+  }
+
+  function handleStopPatcher() {
+    stopPatcher.mutate(undefined, {
+      onError: (error) => {
+        console.error("Failed to stop patcher:", error.message);
+      },
+    });
+  }
+
+  useHotkeys(
+    "ctrl+p",
+    () => {
+      if (isPatcherActive) {
+        handleStopPatcher();
+      } else {
+        handleStartPatcher();
+      }
+    },
+    { preventDefault: true },
+  );
 
   async function handleOpenStorageDirectory() {
     try {
@@ -131,10 +159,7 @@ export function TitleBar({ title = "LTK Manager", appInfo }: TitleBarProps) {
 
   return (
     <header
-      className={twMerge(
-        "title-bar flex h-10 shrink-0 items-center justify-between border-b border-surface-600 bg-surface-950 select-none",
-        isMacOS && "pl-20",
-      )}
+      className="title-bar flex h-10 shrink-0 items-center justify-between border-b border-surface-600 bg-surface-950 select-none"
       data-tauri-drag-region
     >
       {/* Left: App icon, title, version, and navigation */}
@@ -164,7 +189,52 @@ export function TitleBar({ title = "LTK Manager", appInfo }: TitleBarProps) {
       </div>
 
       {/* Right: Notifications, Settings, and window controls */}
-      <div className="flex h-full items-center">
+      <div className={twMerge("flex h-full items-center gap-1.5", isMacOS && "pr-3")}>
+        {patcherAvailable && (
+          <>
+            <Tooltip
+              content={
+                <>
+                  Toggle patcher <Kbd shortcut="Ctrl+P" />
+                </>
+              }
+            >
+              {isPatcherActive ? (
+                <Button
+                  variant="outline"
+                  size="xs"
+                  onClick={handleStopPatcher}
+                  loading={stopPatcher.isPending}
+                  left={
+                    !stopPatcher.isPending && (
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+                      </span>
+                    )
+                  }
+                  className="h-7 rounded-full border-green-500/40 bg-green-500/10 px-2.5 text-xs font-semibold text-green-400 hover:border-green-500/60 hover:bg-green-500/20"
+                >
+                  {stopPatcher.isPending ? "Stopping..." : "Stop Patcher"}
+                </Button>
+              ) : (
+                <Button
+                  variant={hasPatcherInputs ? "filled" : "default"}
+                  size="xs"
+                  onClick={handleStartPatcher}
+                  loading={isStarting}
+                  left={!isStarting && <Play className="h-3 w-3 fill-current" />}
+                  disabled={!hasPatcherInputs || isStarting || stopPatcher.isPending}
+                  className="h-7 rounded-full px-2.5 text-xs font-semibold"
+                >
+                  {isStarting ? "Building..." : "Start Patcher"}
+                </Button>
+              )}
+            </Tooltip>
+            <Separator orientation="vertical" className="h-4" />
+          </>
+        )}
+
         <Tooltip content="Open storage directory">
           <IconButton
             icon={<FolderOpen className="h-4 w-4" />}
@@ -178,66 +248,21 @@ export function TitleBar({ title = "LTK Manager", appInfo }: TitleBarProps) {
 
         <NotificationCenter />
 
-        <Tooltip content="Report a Bug">
-          <IconButton
-            icon={<Accessibility className="h-5 w-5" />}
-            variant="ghost"
-            size="sm"
-            onClick={() => open(bugReportUrl)}
-            aria-label="Report a Bug"
-            className="text-surface-400 hover:text-surface-200"
-          />
-        </Tooltip>
-
-        <Tooltip content="Join our Discord">
-          <IconButton
-            icon={<DiscordIcon className="h-4 w-4" />}
-            variant="ghost"
-            size="sm"
-            onClick={() => open("https://discord.gg/yhzDVRyQex")}
-            aria-label="Join our Discord"
-            className="text-surface-400 hover:text-surface-200"
-          />
-        </Tooltip>
-
-        <Tooltip content="Diagnostics">
-          <Link
-            to="/diagnostics"
-            activeProps={{
-              className: twMerge(settingsLinkBase, activeLinkClass),
-            }}
-            inactiveProps={{
-              className: twMerge(settingsLinkBase, inactiveLinkClass),
-            }}
-            aria-label="Diagnostics"
-          >
+        <Tooltip content="Settings">
+          <Link to="/settings" aria-label="Settings">
             {({ isActive }) => (
-              <>
-                <Stethoscope className="h-4 w-4" />
-                {isActive && <ActiveIndicator />}
-              </>
+              <IconButton
+                icon={<Settings className="h-4 w-4" />}
+                variant="ghost"
+                size="sm"
+                className={twMerge(
+                  "text-surface-400 hover:text-surface-200",
+                  isActive && "bg-surface-700 text-surface-100",
+                )}
+              />
             )}
           </Link>
         </Tooltip>
-
-        {/* Settings button */}
-        <Link
-          to="/settings"
-          activeProps={{
-            className: twMerge(settingsLinkBase, activeLinkClass),
-          }}
-          inactiveProps={{
-            className: twMerge(settingsLinkBase, inactiveLinkClass),
-          }}
-          aria-label="Settings"
-        >
-          {({ isActive }) => (
-            <>
-              <Settings className="h-4 w-4" />
-              {isActive && <ActiveIndicator />}
-            </>
-          )}
-        </Link>
 
         {!isMacOS && (
           <>
@@ -277,14 +302,6 @@ export function TitleBar({ title = "LTK Manager", appInfo }: TitleBarProps) {
         )}
       </div>
     </header>
-  );
-}
-
-function DiscordIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.947 2.418-2.157 2.418z" />
-    </svg>
   );
 }
 
