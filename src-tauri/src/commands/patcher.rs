@@ -76,6 +76,24 @@ pub(crate) fn start_patcher_inner(
     settings: &State<SettingsState>,
     library: &State<ModLibraryState>,
 ) -> AppResult<()> {
+    start_patcher_inner_with_actualization(
+        config,
+        app_handle,
+        state,
+        settings,
+        library,
+        crate::overlay::SkinRemapActualization::AllConfigured,
+    )
+}
+
+pub(crate) fn start_patcher_inner_with_actualization(
+    config: PatcherConfig,
+    app_handle: &AppHandle,
+    state: &State<PatcherState>,
+    settings: &State<SettingsState>,
+    library: &State<ModLibraryState>,
+    actualization: crate::overlay::SkinRemapActualization,
+) -> AppResult<()> {
     if cfg!(not(any(target_os = "windows", target_os = "macos"))) {
         return Err(AppError::Other(
             "The patcher is not yet available on this platform".to_string(),
@@ -159,7 +177,11 @@ pub(crate) fn start_patcher_inner(
 
     let handle = thread::spawn(move || {
         // Phase 1: Build overlay (the slow part)
-        let overlay_root = match library_clone.ensure_overlay(&settings_snapshot, &workshop_paths) {
+        let overlay_root = match library_clone.ensure_overlay_with_actualization(
+            &settings_snapshot,
+            &workshop_paths,
+            actualization,
+        ) {
             Ok(root) => root,
             Err(e) => {
                 tracing::error!(error = ?e, "Overlay build failed");

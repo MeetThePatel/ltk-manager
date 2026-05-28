@@ -13,7 +13,7 @@ use ts_rs::TS;
 use walkdir::WalkDir;
 
 const MAX_GAME_CHAMPION_JSON_BYTES: usize = 1024 * 1024;
-const GAME_CHAMPION_CACHE_VERSION: u32 = 1;
+const GAME_CHAMPION_CACHE_VERSION: u32 = 2;
 const GAME_CHAMPION_CACHE_FILE: &str = "game-champions.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -21,6 +21,7 @@ const GAME_CHAMPION_CACHE_FILE: &str = "game-champions.json";
 #[serde(rename_all = "camelCase")]
 pub struct GameChampion {
     pub champion_id: String,
+    pub champion_key: Option<u32>,
     pub champion_name: String,
     pub skins: Vec<GameSkin>,
 }
@@ -159,7 +160,7 @@ pub fn list_game_champions(
     list_game_champions_inner(&app_handle, &state).into()
 }
 
-fn list_game_champions_inner(
+pub(crate) fn list_game_champions_inner(
     app_handle: &AppHandle,
     state: &State<SettingsState>,
 ) -> AppResult<Vec<GameChampion>> {
@@ -545,6 +546,12 @@ fn parse_game_champion_value(
         return None;
     }
 
+    let champion_key = value
+        .get("id")
+        .and_then(|v| v.as_i64())
+        .filter(|&id| id > 0)
+        .map(|id| id as u32);
+
     let champion_name = value
         .get("name")
         .and_then(|v| v.as_str())
@@ -566,6 +573,7 @@ fn parse_game_champion_value(
 
     Some(GameChampion {
         champion_id,
+        champion_key,
         champion_name,
         skins,
     })
@@ -693,6 +701,7 @@ mod tests {
         std::fs::write(
             &path,
             r##"{
+                "id": 103,
                 "alias": "Ahri",
                 "name": "Ahri",
                 "skins": [
@@ -715,6 +724,7 @@ mod tests {
 
         let champion = parse_game_champion_file(&path).unwrap();
         assert_eq!(champion.champion_id, "ahri");
+        assert_eq!(champion.champion_key, Some(103));
         assert_eq!(champion.champion_name, "Ahri");
         assert_eq!(champion.skins.len(), 2);
         assert_eq!(champion.skins[0].skin_number, 0);

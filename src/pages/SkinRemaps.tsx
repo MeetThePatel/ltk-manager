@@ -3,6 +3,7 @@ import { type ReactNode, useMemo, useState } from "react";
 
 import { Button, Select, Spinner, useToast } from "@/components";
 import type { GameChampion, SkinRemap } from "@/lib/tauri";
+import { LeagueSessionStatusBand } from "@/modules/league-session";
 import {
   useActiveProfile,
   useRemoveSkinRemap,
@@ -114,6 +115,7 @@ export function SkinRemaps() {
 
   return (
     <div className="flex h-full flex-col">
+      <LeagueSessionStatusBand />
       <div className="border-b border-surface-600 bg-surface-800/50 px-8 py-3 lg:px-10">
         <div className="mx-auto flex max-w-4xl items-center gap-3">
           <div className="relative min-w-0 flex-1">

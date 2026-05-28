@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use xxhash_rust::{xxh3::xxh3_64, xxh64::xxh64};
 
 const BASE_LAYER: &str = "base";
-const SKIN_REMAP_VERSION: u64 = 11;
+const SKIN_REMAP_VERSION: u64 = 14;
 
 pub struct SkinRemapContent {
     entries: HashMap<String, BTreeMap<Utf8PathBuf, Vec<u8>>>,
@@ -583,7 +583,7 @@ fn rewrite_skin_to_base(
         ))
     })?;
 
-    let object_hash_rewrites = skin_object_hash_rewrites(champion_id, target_skin, &bin);
+    let object_hash_rewrites = skin_object_hash_rewrites(champion_id, target_skin);
     let source_root = skin_object_hash(champion_id, target_skin, None);
     let base_root = skin_object_hash(champion_id, 0, None);
     let mut object = bin.remove_object(source_root).ok_or_else(|| {
@@ -1042,12 +1042,8 @@ fn skin_object_hash(champion_id: &str, skin_number: u32, suffix: Option<&str>) -
     ))
 }
 
-fn skin_object_hash_rewrites(
-    champion_id: &str,
-    target_skin: u32,
-    bin: &Bin<NoMeta>,
-) -> HashMap<u32, u32> {
-    let mut rewrites: HashMap<u32, u32> = [None, Some("/Resources")]
+fn skin_object_hash_rewrites(champion_id: &str, target_skin: u32) -> HashMap<u32, u32> {
+    [None, Some("/Resources")]
         .into_iter()
         .map(|suffix| {
             (
@@ -1055,221 +1051,7 @@ fn skin_object_hash_rewrites(
                 skin_object_hash(champion_id, 0, suffix),
             )
         })
-        .collect();
-    collect_dynamic_skin_object_hash_rewrites(champion_id, target_skin, bin, &mut rewrites);
-    rewrites
-}
-
-fn collect_dynamic_skin_object_hash_rewrites(
-    champion_id: &str,
-    target_skin: u32,
-    bin: &Bin<NoMeta>,
-    rewrites: &mut HashMap<u32, u32>,
-) {
-    let replacements = SkinTokenReplacements::new(target_skin);
-    for object in bin.objects.values() {
-        for value in object.properties.values() {
-            collect_dynamic_skin_object_hash_rewrites_from_value(
-                champion_id,
-                value,
-                &replacements,
-                bin,
-                rewrites,
-            );
-        }
-    }
-}
-
-fn collect_dynamic_skin_object_hash_rewrites_from_value(
-    champion_id: &str,
-    value: &PropertyValueEnum<NoMeta>,
-    replacements: &SkinTokenReplacements,
-    bin: &Bin<NoMeta>,
-    rewrites: &mut HashMap<u32, u32>,
-) {
-    match value {
-        PropertyValueEnum::String(value) => {
-            if let Some((source_hash, target_hash)) =
-                skin_object_path_hash_pair(champion_id, &value.value, replacements)
-            {
-                if bin.contains_object(source_hash) {
-                    rewrites.entry(source_hash).or_insert(target_hash);
-                }
-            }
-        }
-        PropertyValueEnum::Struct(value) => {
-            collect_dynamic_skin_object_hash_rewrites_from_struct(
-                champion_id,
-                value,
-                replacements,
-                bin,
-                rewrites,
-            );
-        }
-        PropertyValueEnum::Embedded(value) => {
-            collect_dynamic_skin_object_hash_rewrites_from_struct(
-                champion_id,
-                &value.0,
-                replacements,
-                bin,
-                rewrites,
-            );
-        }
-        PropertyValueEnum::Container(value) => {
-            collect_dynamic_skin_object_hash_rewrites_from_container(
-                champion_id,
-                value,
-                replacements,
-                bin,
-                rewrites,
-            );
-        }
-        PropertyValueEnum::UnorderedContainer(value) => {
-            collect_dynamic_skin_object_hash_rewrites_from_container(
-                champion_id,
-                &value.0,
-                replacements,
-                bin,
-                rewrites,
-            );
-        }
-        PropertyValueEnum::Optional(value) => {
-            collect_dynamic_skin_object_hash_rewrites_from_optional(
-                champion_id,
-                value,
-                replacements,
-                bin,
-                rewrites,
-            );
-        }
-        _ => {}
-    }
-}
-
-fn collect_dynamic_skin_object_hash_rewrites_from_struct(
-    champion_id: &str,
-    value: &values::Struct<NoMeta>,
-    replacements: &SkinTokenReplacements,
-    bin: &Bin<NoMeta>,
-    rewrites: &mut HashMap<u32, u32>,
-) {
-    for value in value.properties.values() {
-        collect_dynamic_skin_object_hash_rewrites_from_value(
-            champion_id,
-            value,
-            replacements,
-            bin,
-            rewrites,
-        );
-    }
-}
-
-fn collect_dynamic_skin_object_hash_rewrites_from_container(
-    champion_id: &str,
-    value: &values::Container<NoMeta>,
-    replacements: &SkinTokenReplacements,
-    bin: &Bin<NoMeta>,
-    rewrites: &mut HashMap<u32, u32>,
-) {
-    match value {
-        values::Container::String { items, .. } => {
-            for item in items {
-                if let Some((source_hash, target_hash)) =
-                    skin_object_path_hash_pair(champion_id, &item.value, replacements)
-                {
-                    if bin.contains_object(source_hash) {
-                        rewrites.entry(source_hash).or_insert(target_hash);
-                    }
-                }
-            }
-        }
-        values::Container::Struct { items, .. } => {
-            for item in items {
-                collect_dynamic_skin_object_hash_rewrites_from_struct(
-                    champion_id,
-                    item,
-                    replacements,
-                    bin,
-                    rewrites,
-                );
-            }
-        }
-        values::Container::Embedded { items, .. } => {
-            for item in items {
-                collect_dynamic_skin_object_hash_rewrites_from_struct(
-                    champion_id,
-                    &item.0,
-                    replacements,
-                    bin,
-                    rewrites,
-                );
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_dynamic_skin_object_hash_rewrites_from_optional(
-    champion_id: &str,
-    value: &values::Optional<NoMeta>,
-    replacements: &SkinTokenReplacements,
-    bin: &Bin<NoMeta>,
-    rewrites: &mut HashMap<u32, u32>,
-) {
-    match value {
-        values::Optional::String {
-            value: Some(value), ..
-        } => {
-            if let Some((source_hash, target_hash)) =
-                skin_object_path_hash_pair(champion_id, &value.value, replacements)
-            {
-                if bin.contains_object(source_hash) {
-                    rewrites.entry(source_hash).or_insert(target_hash);
-                }
-            }
-        }
-        values::Optional::Struct {
-            value: Some(value), ..
-        } => {
-            collect_dynamic_skin_object_hash_rewrites_from_struct(
-                champion_id,
-                value,
-                replacements,
-                bin,
-                rewrites,
-            );
-        }
-        values::Optional::Embedded {
-            value: Some(value), ..
-        } => {
-            collect_dynamic_skin_object_hash_rewrites_from_struct(
-                champion_id,
-                &value.0,
-                replacements,
-                bin,
-                rewrites,
-            );
-        }
-        _ => {}
-    }
-}
-
-fn skin_object_path_hash_pair(
-    champion_id: &str,
-    source: &str,
-    replacements: &SkinTokenReplacements,
-) -> Option<(u32, u32)> {
-    let normalized = source.replace('\\', "/");
-    let lower = normalized.to_ascii_lowercase();
-    let prefix = format!("characters/{}/skins/", champion_id.to_ascii_lowercase());
-    if !lower.starts_with(&prefix) {
-        return None;
-    }
-    let target = replace_skin_tokens(&normalized, replacements)?;
-    Some((
-        ltk_hash::fnv1a::hash_lower(&normalized),
-        ltk_hash::fnv1a::hash_lower(&target),
-    ))
+        .collect()
 }
 
 fn skin_remap_fingerprint(entries: &HashMap<String, BTreeMap<Utf8PathBuf, Vec<u8>>>) -> u64 {
@@ -1406,7 +1188,7 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_skin_root_moves_skin_scoped_child_objects_to_base_paths() {
+    fn rewrite_skin_root_preserves_skin_scoped_child_object_hashes() {
         let source_path = "Characters/Naafiri/Skins/Skin11/Particles/Naafiri_Skin11_W_Dash";
         let target_path = "Characters/Naafiri/Skins/Skin0/Particles/Naafiri_Skin0_W_Dash";
         let path_property = ltk_hash::fnv1a::hash_lower("path");
@@ -1436,18 +1218,63 @@ mod tests {
             .get_object(skin_object_hash("Naafiri", 0, None))
             .unwrap();
         let effect = bin
-            .get_object(ltk_hash::fnv1a::hash_lower(target_path))
+            .get_object(ltk_hash::fnv1a::hash_lower(source_path))
             .unwrap();
 
-        assert!(!bin.contains_object(ltk_hash::fnv1a::hash_lower(source_path)));
+        assert!(!bin.contains_object(ltk_hash::fnv1a::hash_lower(target_path)));
         assert_eq!(
             root.get_property(link_property).unwrap(),
             &PropertyValueEnum::ObjectLink(values::ObjectLink::from(ltk_hash::fnv1a::hash_lower(
-                target_path
+                source_path
             )))
         );
         assert_eq!(
             effect.get_property(path_property).unwrap(),
+            &PropertyValueEnum::String(values::String::from(target_path))
+        );
+    }
+
+    #[test]
+    fn rewrite_skin_root_preserves_champion_scoped_child_object_hashes() {
+        let source_path = "Characters/LeeSin/CAC/LeeSin_Skin11";
+        let target_path = "Characters/LeeSin/CAC/LeeSin_Skin0";
+        let path_property = ltk_hash::fnv1a::hash_lower("path");
+        let link_property = ltk_hash::fnv1a::hash_lower("abilityCatalog");
+        let root = BinObject::<NoMeta>::builder(
+            skin_object_hash("LeeSin", 11, None),
+            ltk_hash::fnv1a::hash_lower("SkinCharacterDataProperties"),
+        )
+        .property(
+            link_property,
+            values::ObjectLink::from(ltk_hash::fnv1a::hash_lower(source_path)),
+        )
+        .build();
+        let catalog = BinObject::<NoMeta>::builder(
+            ltk_hash::fnv1a::hash_lower(source_path),
+            ltk_hash::fnv1a::hash_lower("CharacterAbilityCatalog"),
+        )
+        .property(path_property, values::String::from(source_path))
+        .build();
+        let bin = Bin::new([root, catalog], ["DATA/Characters/Test/Test.bin"]);
+        let mut bytes = Cursor::new(Vec::new());
+        bin.to_writer(&mut bytes).unwrap();
+
+        let rewrite = rewrite_skin_to_base("LeeSin", 11, bytes.into_inner()).unwrap();
+        let bin = Bin::from_reader(&mut Cursor::new(rewrite.bin_bytes)).unwrap();
+        let root = bin.get_object(skin_object_hash("LeeSin", 0, None)).unwrap();
+        let catalog = bin
+            .get_object(ltk_hash::fnv1a::hash_lower(source_path))
+            .unwrap();
+
+        assert!(!bin.contains_object(ltk_hash::fnv1a::hash_lower(target_path)));
+        assert_eq!(
+            root.get_property(link_property).unwrap(),
+            &PropertyValueEnum::ObjectLink(values::ObjectLink::from(ltk_hash::fnv1a::hash_lower(
+                source_path
+            )))
+        );
+        assert_eq!(
+            catalog.get_property(path_property).unwrap(),
             &PropertyValueEnum::String(values::String::from(target_path))
         );
     }
@@ -1492,7 +1319,7 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_skin_refs_preserves_wwise_identifiers() {
+    fn rewrite_skin_refs_preserves_runtime_identifiers() {
         let audio_path_property = ltk_hash::fnv1a::hash_lower("audioPath");
         let bank_property = ltk_hash::fnv1a::hash_lower("audioBank");
         let event_property = ltk_hash::fnv1a::hash_lower("audioEvent");

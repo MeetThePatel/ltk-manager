@@ -3,7 +3,7 @@ use crate::hotkeys::{HotkeyAction, HotkeyManager};
 use crate::mods::ModLibraryState;
 use crate::patcher::PatcherState;
 use crate::state::{save_settings_to_disk, SettingsState};
-use std::path::{Path, PathBuf};
+
 use std::process::Command;
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -69,7 +69,7 @@ pub(crate) fn execute_hot_reload(app_handle: &AppHandle) -> AppResult<()> {
         s.league_path.clone()
     };
     if let Some(path) = league_path {
-        std::thread::spawn(move || try_lcu_reconnect(&path));
+        std::thread::spawn(move || crate::league_client::try_lcu_reconnect(&path));
     }
 
     // Emit workshop project paths so frontend can re-sync testing state
@@ -239,7 +239,7 @@ fn hot_reload_mods_inner(
         s.league_path.clone()
     };
     if let Some(path) = league_path {
-        std::thread::spawn(move || try_lcu_reconnect(&path));
+        std::thread::spawn(move || crate::league_client::try_lcu_reconnect(&path));
     }
 
     Ok(())
@@ -295,174 +295,6 @@ fn wait_for_patcher_stop(state: &PatcherState) -> AppResult<()> {
     }
 }
 
-// ── LCU Reconnect ──
-
-/// Parsed LCU lockfile data.
-struct LockfileData {
-    port: u16,
-    password: String,
-}
-
-/// Read and parse the League Client lockfile.
-/// Format: `LeagueClient:pid:port:password:https` (5-part) or `process:port:password:protocol` (4-part).
-fn read_lockfile(league_path: &Path) -> Option<LockfileData> {
-    let lockfile_path = resolve_lockfile_path(league_path);
-
-    let content = match std::fs::read_to_string(&lockfile_path) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::debug!("Could not read lockfile at {:?}: {}", lockfile_path, e);
-            return None;
-        }
-    };
-
-    let parts: Vec<&str> = content.trim().split(':').collect();
-
-    match parts.len() {
-        4 => {
-            // Old format: process:port:password:protocol
-            let port = parts[1].parse::<u16>().ok()?;
-            let password = parts[2].to_string();
-            tracing::debug!("Parsed lockfile (4-part): port={}", port);
-            Some(LockfileData { port, password })
-        }
-        5 => {
-            // New format: process:pid:port:password:protocol
-            let port = parts[2].parse::<u16>().ok()?;
-            let password = parts[3].to_string();
-            tracing::debug!("Parsed lockfile (5-part): port={}", port);
-            Some(LockfileData { port, password })
-        }
-        n if n > 5 => {
-            // Try 5-part interpretation
-            let port = parts[2].parse::<u16>().ok()?;
-            let password = parts[3].to_string();
-            tracing::warn!(
-                "Lockfile has {} parts, using 5-part format guess: port={}",
-                n,
-                port
-            );
-            Some(LockfileData { port, password })
-        }
-        _ => {
-            tracing::warn!("Invalid lockfile format: {} parts", parts.len());
-            None
-        }
-    }
-}
-
-fn resolve_lockfile_path(league_path: &Path) -> PathBuf {
-    let direct = league_path.join("lockfile");
-    if direct.exists() {
-        return direct;
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let bundle_inner = league_path.join("Contents").join("LoL").join("lockfile");
-        if bundle_inner.exists()
-            || league_path.extension().and_then(|ext| ext.to_str()) == Some("app")
-        {
-            return bundle_inner;
-        }
-    }
-
-    direct
-}
-
-/// Attempt to reconnect to League via the LCU API (best-effort, non-fatal).
-/// Retries several times with delays to give the client time to process the game exit.
-fn try_lcu_reconnect(league_path: &Path) {
-    let lockfile = match read_lockfile(league_path) {
-        Some(data) => data,
-        None => {
-            tracing::debug!("No lockfile found, skipping LCU reconnect");
-            return;
-        }
-    };
-
-    let client = match reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!("Failed to build HTTP client for LCU: {}", e);
-            return;
-        }
-    };
-
-    // Retry up to 5 times with increasing delays.
-    // The League client needs time to process the game exit before it accepts reconnect.
-    let retry_delays = [
-        std::time::Duration::from_secs(3),
-        std::time::Duration::from_secs(3),
-        std::time::Duration::from_secs(5),
-        std::time::Duration::from_secs(5),
-        std::time::Duration::from_secs(5),
-    ];
-
-    for (attempt, delay) in retry_delays.iter().enumerate() {
-        tracing::debug!(
-            "LCU reconnect: waiting {}s before attempt {} of {}",
-            delay.as_secs(),
-            attempt + 1,
-            retry_delays.len()
-        );
-        std::thread::sleep(*delay);
-
-        if try_lcu_reconnect_once(&client, &lockfile) {
-            return;
-        }
-    }
-
-    tracing::debug!("LCU reconnect: all attempts exhausted (client may not need reconnect)");
-}
-
-/// Single attempt to reconnect via LCU API. Returns true on success.
-fn try_lcu_reconnect_once(client: &reqwest::blocking::Client, lockfile: &LockfileData) -> bool {
-    let endpoints = [
-        ("POST", "/lol-gameflow/v1/reconnect"),
-        ("PUT", "/lol-gameflow/v1/reconnect"),
-        ("POST", "/lol-login/v1/session/reconnect"),
-    ];
-
-    for (method, path) in &endpoints {
-        let url = format!("https://127.0.0.1:{}{}", lockfile.port, path);
-        tracing::debug!("Trying LCU reconnect: {} {}", method, url);
-
-        let result = match *method {
-            "POST" => client
-                .post(&url)
-                .basic_auth("riot", Some(&lockfile.password))
-                .header("Content-Type", "application/json")
-                .send(),
-            "PUT" => client
-                .put(&url)
-                .basic_auth("riot", Some(&lockfile.password))
-                .header("Content-Type", "application/json")
-                .send(),
-            _ => continue,
-        };
-
-        match result {
-            Ok(resp) if resp.status().is_success() => {
-                tracing::info!("LCU reconnect succeeded via {} {}", method, path);
-                return true;
-            }
-            Ok(resp) => {
-                tracing::debug!("LCU {} {} returned {}", method, path, resp.status());
-            }
-            Err(e) => {
-                tracing::debug!("LCU {} {} failed: {}", method, path, e);
-            }
-        }
-    }
-
-    false
-}
-
 /// Kill the League of Legends game process.
 fn kill_league_process() {
     tracing::info!("Killing League of Legends process");
@@ -506,33 +338,5 @@ fn kill_league_process() {
         Err(e) => {
             tracing::warn!("Failed to spawn kill command: {}", e);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_lockfile_path_prefers_direct_lockfile() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("lockfile"), "LeagueClient:1:2:pw:https").unwrap();
-
-        assert_eq!(
-            resolve_lockfile_path(dir.path()),
-            dir.path().join("lockfile")
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn resolve_lockfile_path_uses_macos_app_inner_lol_dir() {
-        let dir = tempfile::tempdir().unwrap();
-        let app = dir.path().join("League of Legends.app");
-        let inner = app.join("Contents").join("LoL");
-        std::fs::create_dir_all(&inner).unwrap();
-        std::fs::write(inner.join("lockfile"), "LeagueClient:1:2:pw:https").unwrap();
-
-        assert_eq!(resolve_lockfile_path(&app), inner.join("lockfile"));
     }
 }

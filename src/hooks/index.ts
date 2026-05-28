@@ -1,4 +1,3 @@
-export { useAutoStartPatcher } from "./useAutoStartPatcher";
 export { useClickOutside } from "./useClickOutside";
 export { useHddWarning } from "./useHddWarning";
 export { usePlatformSupport } from "./usePlatformSupport";

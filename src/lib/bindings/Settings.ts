@@ -53,9 +53,9 @@ export type Settings = {
    */
   startInTrayUnlessUpdate: boolean;
   /**
-   * Always start the patcher automatically on launch. Default: false.
+   * Whether session-managed patching is enabled. Default: true.
    */
-  alwaysStartPatcher: boolean;
+  sessionManagedPatchingEnabled: boolean;
   /**
    * Whether the user has dismissed the cslol-manager migration banner.
    */

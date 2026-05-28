@@ -50,12 +50,29 @@ pub fn run(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let deep_link_state = DeepLinkState::new();
 
+    let league_session = crate::league_session::LeagueSessionState(std::sync::Arc::new(
+        std::sync::Mutex::new(crate::league_session::LeagueSessionStateInner {
+            enabled: true,
+            client_available: false,
+            phase: crate::league_client::models::LeagueGameflowPhase::None,
+            observed_champion: None,
+            actualized_champion: None,
+            lifecycle: crate::league_session::LeagueSessionLifecycle::Idle,
+            last_error: None,
+            last_updated_ms: 0,
+            current_session_id: None,
+        }),
+    ));
+
     app.manage(settings_state);
     app.manage(patcher_state);
     app.manage(mod_library);
     app.manage(workshop);
     app.manage(hotkey_manager);
     app.manage(deep_link_state);
+    app.manage(league_session);
+
+    crate::league_session::spawn_league_session_watcher(app_handle.clone());
 
     crate::tray::setup(app)?;
 

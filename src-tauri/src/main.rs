@@ -8,6 +8,8 @@ mod deep_link;
 mod diagnostics;
 mod error;
 mod hotkeys;
+pub mod league_client;
+pub mod league_session;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod legacy_patcher;
 #[cfg(debug_assertions)]
@@ -94,6 +96,7 @@ fn main() {
             commands::stop_patcher,
             commands::get_patcher_status,
             commands::pre_elevate_patcher,
+            commands::get_league_session_state,
             // Hotkeys
             commands::pause_hotkeys,
             commands::resume_hotkeys,

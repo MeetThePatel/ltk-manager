@@ -26,7 +26,7 @@ export function createMockSettings(overrides?: Partial<Settings>): Settings {
     defaultAuthorProfileId: null,
     autoRun: false,
     startInTrayUnlessUpdate: false,
-    alwaysStartPatcher: false,
+    sessionManagedPatchingEnabled: true,
     hasSeenHddWarning: false,
     ...overrides,
   };

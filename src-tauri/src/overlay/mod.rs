@@ -31,6 +31,14 @@ pub struct OverlayProgress {
     pub total: u32,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ts_rs::TS, PartialEq, Eq)]
+#[ts(export)]
+pub enum SkinRemapActualization {
+    AllConfigured,
+    ChampionAlias(String),
+    None,
+}
+
 impl ModLibrary {
     /// Ensure the overlay exists and is up-to-date for the current enabled mod set.
     ///
@@ -38,15 +46,46 @@ impl ModLibrary {
     ///
     /// Workshop project paths (if any) are loaded via `FsModContent` and prepended
     /// to the enabled mod list so they take highest priority.
+    #[allow(dead_code)]
     pub fn ensure_overlay(
         &self,
         settings: &Settings,
         workshop_project_paths: &[PathBuf],
     ) -> AppResult<PathBuf> {
+        self.ensure_overlay_with_actualization(
+            settings,
+            workshop_project_paths,
+            SkinRemapActualization::AllConfigured,
+        )
+    }
+
+    pub fn ensure_overlay_with_actualization(
+        &self,
+        settings: &Settings,
+        workshop_project_paths: &[PathBuf],
+        actualization: SkinRemapActualization,
+    ) -> AppResult<PathBuf> {
         let storage_dir = self.storage_dir(settings)?;
         let game_dir = resolve_game_dir(settings)?;
-        let (profile_slug, enabled_mods, skin_remaps) =
+        let (profile_slug, enabled_mods, mut skin_remaps) =
             self.get_enabled_mods_for_overlay(settings)?;
+
+        match actualization {
+            SkinRemapActualization::AllConfigured => {}
+            SkinRemapActualization::ChampionAlias(alias) => {
+                let lower_alias = alias.to_ascii_lowercase();
+                skin_remaps.retain(|remap| remap.champion_id.to_ascii_lowercase() == lower_alias);
+                tracing::info!(
+                    "Actualized remap filtered for champion '{}': kept {} remaps",
+                    lower_alias,
+                    skin_remaps.len()
+                );
+            }
+            SkinRemapActualization::None => {
+                skin_remaps.clear();
+                tracing::info!("Actualized remap set to None: cleared all skin remaps");
+            }
+        }
 
         let profile_dir = storage_dir.join("profiles").join(profile_slug.as_str());
         let overlay_root = profile_dir.join("overlay");

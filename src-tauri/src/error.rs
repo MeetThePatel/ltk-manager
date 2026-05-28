@@ -209,6 +209,9 @@ pub enum AppError {
     #[error("ZIP error: {0}")]
     ZipError(#[from] zip::result::ZipError),
 
+    #[error("HTTP error: {0}")]
+    Http(#[from] reqwest::Error),
+
     #[error("Library index schema version {file_version} is newer than supported version {max_supported}")]
     SchemaVersionTooNew {
         file_version: u32,
@@ -287,6 +290,8 @@ impl From<AppError> for AppErrorResponse {
             ),
 
             AppError::ZipError(e) => AppErrorResponse::new(ErrorCode::Zip, e.to_string()),
+
+            AppError::Http(e) => AppErrorResponse::new(ErrorCode::Io, e.to_string()),
 
             AppError::SchemaVersionTooNew { file_version, max_supported } => AppErrorResponse::new(
                 ErrorCode::SchemaVersionTooNew,

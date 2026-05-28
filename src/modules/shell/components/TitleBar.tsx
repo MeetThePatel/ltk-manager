@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { LucideIcon } from "lucide-react";
 import { FolderOpen, Hammer, Library, Minus, Play, Settings, Shirt, Square, X } from "lucide-react";
@@ -85,6 +85,10 @@ export function TitleBar({ title = "LTK Manager", appInfo }: TitleBarProps) {
   const isPatcherActive = patcherStatus?.running ?? false;
   const hasPatcherInputs = mods.some((m) => m.enabled) || skinRemaps.length > 0;
   const patcherAvailable = platform?.patcherAvailable ?? true;
+  const location = useLocation();
+  const isWorkshop = location.pathname.startsWith("/workshop");
+  const showManualControls =
+    !settings?.sessionManagedPatchingEnabled || isWorkshop || isPatcherActive;
 
   async function handleStartPatcher() {
     if (!settings?.leaguePath) {
@@ -190,7 +194,7 @@ export function TitleBar({ title = "LTK Manager", appInfo }: TitleBarProps) {
 
       {/* Right: Notifications, Settings, and window controls */}
       <div className={twMerge("flex h-full items-center gap-1.5", isMacOS && "pr-3")}>
-        {patcherAvailable && (
+        {patcherAvailable && showManualControls && (
           <>
             <Tooltip
               content={

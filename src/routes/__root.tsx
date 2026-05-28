@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
 import { useToast } from "@/components";
-import { useAutoStartPatcher, usePlatformSupport, useReducedMotion } from "@/hooks";
+import { usePlatformSupport, useReducedMotion } from "@/hooks";
 import type { AppError } from "@/lib/tauri";
 import { useTauriEvent } from "@/lib/useTauriEvent";
 import { ProtocolInstallDialog, useDeepLinkListener } from "@/modules/deep-link";
@@ -31,7 +31,6 @@ function RootLayout() {
   useDevLogStream();
   useDeepLinkListener();
   useLibraryWatcher();
-  useAutoStartPatcher();
 
   const { data: platform } = usePlatformSupport();
   const isMacOS = platform?.os === "macos";

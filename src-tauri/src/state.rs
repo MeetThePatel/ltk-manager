@@ -204,9 +204,9 @@ pub struct Settings {
     /// When starting in tray, show the window if an update is available. Default: false.
     #[serde(default)]
     pub start_in_tray_unless_update: bool,
-    /// Always start the patcher automatically on launch. Default: false.
-    #[serde(default)]
-    pub always_start_patcher: bool,
+    /// Whether session-managed patching is enabled. Default: true.
+    #[serde(default = "default_true")]
+    pub session_managed_patching_enabled: bool,
     /// Whether the user has dismissed the cslol-manager migration banner.
     #[serde(default)]
     pub migration_dismissed: bool,
@@ -262,7 +262,7 @@ impl Default for Settings {
             start_in_tray: false,
             auto_run: false,
             start_in_tray_unless_update: false,
-            always_start_patcher: false,
+            session_managed_patching_enabled: true,
             migration_dismissed: false,
             reload_mods_hotkey: None,
             kill_league_hotkey: None,
@@ -320,7 +320,7 @@ mod tests {
             start_in_tray: false,
             auto_run: false,
             start_in_tray_unless_update: false,
-            always_start_patcher: false,
+            session_managed_patching_enabled: true,
             migration_dismissed: false,
             reload_mods_hotkey: Some("Ctrl+Shift+R".to_string()),
             kill_league_hotkey: None,

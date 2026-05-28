@@ -76,16 +76,18 @@ export function MinimizeToTraySection({ settings, onSave }: MinimizeToTraySectio
         <label className="flex items-center justify-between gap-4">
           <div>
             <span className="block text-sm font-medium text-surface-200">
-              Always start patcher at launch
+              Session-managed patching
             </span>
             <span className="block text-sm text-surface-400">
-              Automatically start patching mods every time the app launches, this starts last active
-              profile.
+              LTK watches Champ Select, actualizes exactly one remap at game launch, and
+              automatically clears it after game end.
             </span>
           </div>
           <Switch
-            checked={settings.alwaysStartPatcher}
-            onCheckedChange={(checked) => onSave({ ...settings, alwaysStartPatcher: checked })}
+            checked={settings.sessionManagedPatchingEnabled}
+            onCheckedChange={(checked) =>
+              onSave({ ...settings, sessionManagedPatchingEnabled: checked })
+            }
           />
         </label>
       </div>
