@@ -43,5 +43,6 @@ export default defineConfig({
 
     // Fallback to original minifier until @tailwindcss/vite supports Vite 8
     cssMinify: "esbuild",
+    chunkSizeWarningLimit: 1500,
   },
 });

@@ -231,6 +231,8 @@ pub(crate) fn start_patcher_inner(
             flags,
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             stop_flag: &stop_flag,
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            _marker: std::marker::PhantomData,
         }) {
             Ok(()) => tracing::info!("Patcher loop completed successfully"),
             Err(e) => {
@@ -316,6 +318,7 @@ fn get_patcher_status_inner(state: &State<PatcherState>) -> AppResult<PatcherSta
 
 /// Pre-elevate the macOS patcher.
 #[tauri::command]
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
 pub fn pre_elevate_patcher(app_handle: AppHandle) -> IpcResult<()> {
     #[cfg(target_os = "macos")]
     {
@@ -326,7 +329,7 @@ pub fn pre_elevate_patcher(app_handle: AppHandle) -> IpcResult<()> {
                 tracing::warn!("Could not pre-elevate macOS process patcher: {}", e);
                 let error_response = crate::error::AppErrorResponse::new(
                     crate::error::ErrorCode::Unknown,
-                    format!("Patcher requires administrator privileges to start. You will be prompted again when starting the patcher."),
+                    "Patcher requires administrator privileges to start. You will be prompted again when starting the patcher.".to_string(),
                 );
                 let _ = app_handle.emit("patcher-elevation-failed", &error_response);
             } else {

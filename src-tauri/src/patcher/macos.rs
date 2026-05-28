@@ -135,7 +135,10 @@ fn ensure_process_patcher_broker(
                     return Ok(child);
                 }
                 other => {
-                    tracing::warn!("Failed to claim existing process patcher broker: {:?}", other);
+                    tracing::warn!(
+                        "Failed to claim existing process patcher broker: {:?}",
+                        other
+                    );
                 }
             }
         }

@@ -112,6 +112,8 @@ pub(crate) struct PlatformPatcherConfig<'a> {
     pub flags: Option<u64>,
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     pub stop_flag: &'a AtomicBool,
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
 #[cfg(target_os = "windows")]

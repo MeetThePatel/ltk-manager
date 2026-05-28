@@ -1,4 +1,5 @@
 import { createRootRoute, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
@@ -38,10 +39,8 @@ function RootLayout() {
   useEffect(() => {
     if (isMacOS) {
       const timer = setTimeout(() => {
-        import("@tauri-apps/api/core").then(({ invoke }) => {
-          invoke("pre_elevate_patcher").catch((err) => {
-            console.error("Failed to pre-elevate patcher:", err);
-          });
+        invoke("pre_elevate_patcher").catch((err) => {
+          console.error("Failed to pre-elevate patcher:", err);
         });
       }, 2000);
       return () => clearTimeout(timer);
