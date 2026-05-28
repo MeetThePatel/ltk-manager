@@ -93,6 +93,7 @@ fn main() {
             commands::start_patcher,
             commands::stop_patcher,
             commands::get_patcher_status,
+            commands::pre_elevate_patcher,
             // Hotkeys
             commands::pause_hotkeys,
             commands::resume_hotkeys,

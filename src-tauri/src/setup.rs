@@ -59,10 +59,10 @@ pub fn run(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     crate::tray::setup(app)?;
 
-    #[cfg(target_os = "macos")]
+    #[cfg(not(target_os = "macos"))]
     {
         if let Some(window) = app_handle.get_webview_window("main") {
-            let _ = window.set_decorations(true);
+            let _ = window.set_decorations(false);
         }
     }
 

@@ -683,6 +683,7 @@ struct BrokerState {
     std::optional<std::string> prefix;
     bool quit = false;
     pid_t patched_pid = 0;
+    pid_t parent_pid = 0;
 };
 
 class BrokerSocket {
@@ -771,6 +772,11 @@ private:
                 state.prefix = normalized_prefix(path.c_str());
                 std::cout << "broker started patching with overlay " << *state.prefix << "\n" << std::flush;
                 write_response(client, "OK started\n");
+            } else if (command.rfind("claim ", 0) == 0) {
+                const auto pid_str = command.substr(6);
+                state.parent_pid = static_cast<pid_t>(std::stol(pid_str));
+                std::cout << "broker claimed by new parent process pid=" << state.parent_pid << "\n" << std::flush;
+                write_response(client, "OK claimed\n");
             } else {
                 write_response(client, "ERR unknown command\n");
             }
@@ -799,6 +805,7 @@ private:
 static int run_broker(const Options& options) {
     BrokerSocket broker(options.broker_socket);
     BrokerState state;
+    state.parent_pid = options.parent_pid;
     bool printed_wait = false;
 
     std::cout << "broker listening at " << options.broker_socket << "\n" << std::flush;
@@ -809,9 +816,21 @@ static int run_broker(const Options& options) {
             std::cout << "broker quit requested\n" << std::flush;
             return 0;
         }
-        if (!parent_is_alive(options.parent_pid)) {
-            std::cout << "parent process exited; stopping broker\n" << std::flush;
-            return 0;
+        
+        static std::optional<std::chrono::steady_clock::time_point> parent_death_time;
+        if (!parent_is_alive(state.parent_pid)) {
+            if (!parent_death_time) {
+                parent_death_time = std::chrono::steady_clock::now();
+                std::cout << "parent process exited; entering 10-second grace period for new parent to claim broker\n" << std::flush;
+            } else {
+                auto elapsed = std::chrono::steady_clock::now() - *parent_death_time;
+                if (elapsed > 10s) {
+                    std::cout << "grace period expired; stopping broker\n" << std::flush;
+                    return 0;
+                }
+            }
+        } else {
+            parent_death_time.reset();
         }
         if (!state.prefix) {
             printed_wait = false;

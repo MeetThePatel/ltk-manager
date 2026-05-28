@@ -7,9 +7,9 @@ import { useHotkeys } from "react-hotkeys-hook";
 import { twMerge } from "tailwind-merge";
 
 import { Button, IconButton, Kbd, Separator, Tooltip, useToast } from "@/components";
-import { useHddWarning,usePlatformSupport } from "@/hooks";
+import { useHddWarning, usePlatformSupport } from "@/hooks";
 import { api, type AppInfo, unwrap } from "@/lib/tauri";
-import { ProfileSelector,useInstalledMods, useSkinRemaps } from "@/modules/library";
+import { ProfileSelector, useInstalledMods, useSkinRemaps } from "@/modules/library";
 import { usePatcherStatus, useStartPatcher, useStopPatcher } from "@/modules/patcher";
 import { useSettings } from "@/modules/settings";
 

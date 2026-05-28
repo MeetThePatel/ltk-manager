@@ -56,6 +56,12 @@ pub fn run_process_patcher_loop(
     }
 }
 
+pub fn prepare_process_patcher(app_handle: &AppHandle) -> AppResult<()> {
+    let helper = resolve_process_patcher(app_handle)?;
+    let _ = ensure_process_patcher_broker(app_handle, &helper)?;
+    Ok(())
+}
+
 struct ProcessPatcherChild {
     pid: u32,
     log_file: PathBuf,
@@ -122,7 +128,16 @@ fn ensure_process_patcher_broker(
             socket_file: socket_file.clone(),
         };
         if child.is_running() {
-            return Ok(child);
+            let parent_pid = std::process::id();
+            match send_broker_command(&socket_file, &format!("claim {}", parent_pid)) {
+                Ok(resp) if resp.starts_with("OK ") => {
+                    tracing::info!("Successfully claimed existing process patcher broker");
+                    return Ok(child);
+                }
+                other => {
+                    tracing::warn!("Failed to claim existing process patcher broker: {:?}", other);
+                }
+            }
         }
     }
 

@@ -313,3 +313,26 @@ fn get_patcher_status_inner(state: &State<PatcherState>) -> AppResult<PatcherSta
         phase: patcher_state.phase,
     })
 }
+
+/// Pre-elevate the macOS patcher.
+#[tauri::command]
+pub fn pre_elevate_patcher(app_handle: AppHandle) -> IpcResult<()> {
+    #[cfg(target_os = "macos")]
+    {
+        std::thread::spawn(move || {
+            use tauri::Emitter;
+            tracing::info!("Pre-elevating macOS process patcher at startup...");
+            if let Err(e) = crate::patcher::macos::prepare_process_patcher(&app_handle) {
+                tracing::warn!("Could not pre-elevate macOS process patcher: {}", e);
+                let error_response = crate::error::AppErrorResponse::new(
+                    crate::error::ErrorCode::Unknown,
+                    format!("Patcher requires administrator privileges to start. You will be prompted again when starting the patcher."),
+                );
+                let _ = app_handle.emit("patcher-elevation-failed", &error_response);
+            } else {
+                tracing::info!("Successfully pre-elevated macOS process patcher at startup");
+            }
+        });
+    }
+    Ok::<(), AppError>(()).into()
+}

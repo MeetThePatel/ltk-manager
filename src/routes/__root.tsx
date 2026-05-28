@@ -4,7 +4,10 @@ import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
-import { useAutoStartPatcher, useReducedMotion } from "@/hooks";
+import { useToast } from "@/components";
+import { useAutoStartPatcher, usePlatformSupport, useReducedMotion } from "@/hooks";
+import type { AppError } from "@/lib/tauri";
+import { useTauriEvent } from "@/lib/useTauriEvent";
 import { ProtocolInstallDialog, useDeepLinkListener } from "@/modules/deep-link";
 import { useLibraryWatcher } from "@/modules/library";
 import { PatcherStatusPill } from "@/modules/patcher";
@@ -28,6 +31,27 @@ function RootLayout() {
   useDeepLinkListener();
   useLibraryWatcher();
   useAutoStartPatcher();
+
+  const { data: platform } = usePlatformSupport();
+  const isMacOS = platform?.os === "macos";
+
+  useEffect(() => {
+    if (isMacOS) {
+      const timer = setTimeout(() => {
+        import("@tauri-apps/api/core").then(({ invoke }) => {
+          invoke("pre_elevate_patcher").catch((err) => {
+            console.error("Failed to pre-elevate patcher:", err);
+          });
+        });
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isMacOS]);
+
+  const toast = useToast();
+  useTauriEvent<AppError>("patcher-elevation-failed", (payload) => {
+    toast.error("Startup Permission Denied", payload.message);
+  });
 
   const update = useUpdaterUpdate();
   const { data: settings } = useSettings();
