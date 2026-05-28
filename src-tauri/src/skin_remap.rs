@@ -6,14 +6,14 @@ use ltk_meta::{
     Bin, PropertyValueEnum,
 };
 use ltk_mod_project::{ModProject, ModProjectAuthor, ModProjectLayer};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{Cursor, Read, Seek};
 use std::path::{Path, PathBuf};
 use xxhash_rust::{xxh3::xxh3_64, xxh64::xxh64};
 
 const BASE_LAYER: &str = "base";
-const SKIN_REMAP_VERSION: u64 = 8;
+const SKIN_REMAP_VERSION: u64 = 11;
 
 pub struct SkinRemapContent {
     entries: HashMap<String, BTreeMap<Utf8PathBuf, Vec<u8>>>,
@@ -212,6 +212,8 @@ fn build_base_skin_overrides(
             primary_wad_path.display()
         ))
     })?;
+    let companion_ids =
+        referenced_companion_skin_ids(&wad, champion_id, target_skin, &source_bytes);
     let rewrite = rewrite_skin_to_base(champion_id, target_skin, source_bytes)?;
 
     let primary_wad_name = wad_file_name(&primary_wad_path)?;
@@ -220,6 +222,23 @@ fn build_base_skin_overrides(
         .entry(primary_wad_name.clone())
         .or_default()
         .insert(skin_bin_path(champion_id, 0), rewrite.bin_bytes);
+    let mut linked_chunks = rewrite.linked_chunks;
+
+    for companion_id in companion_ids {
+        let companion_source_path = skin_bin_path(&companion_id, target_skin);
+        let Some(companion_source_bytes) =
+            read_wad_chunk_from_mounted(&mut wad, &companion_source_path)?
+        else {
+            continue;
+        };
+        let companion_rewrite =
+            rewrite_skin_to_base(&companion_id, target_skin, companion_source_bytes)?;
+        overrides
+            .entry(primary_wad_name.clone())
+            .or_default()
+            .insert(skin_bin_path(&companion_id, 0), companion_rewrite.bin_bytes);
+        linked_chunks.extend(companion_rewrite.linked_chunks);
+    }
 
     let mut source_wads = vec![MountedSourceWad {
         name: primary_wad_name,
@@ -239,7 +258,7 @@ fn build_base_skin_overrides(
         });
     }
 
-    for (source_path, target_path) in rewrite.linked_chunks {
+    for (source_path, target_path) in linked_chunks {
         for source_wad in &mut source_wads {
             if let Some(bytes) = read_wad_chunk_from_mounted(&mut source_wad.wad, &source_path)? {
                 overrides
@@ -251,6 +270,281 @@ fn build_base_skin_overrides(
         }
     }
     Ok(overrides)
+}
+
+fn referenced_companion_skin_ids<TSource: Read + Seek>(
+    wad: &ltk_wad::Wad<TSource>,
+    champion_id: &str,
+    target_skin: u32,
+    source_bytes: &[u8],
+) -> BTreeSet<String> {
+    let Ok(bin) = Bin::from_reader(&mut Cursor::new(source_bytes)) else {
+        return BTreeSet::new();
+    };
+    let champion_lower = champion_id.to_ascii_lowercase();
+    let mut ids = BTreeSet::new();
+    for object in bin.objects.values() {
+        for value in object.properties.values() {
+            collect_referenced_companion_skin_ids(
+                wad,
+                &champion_lower,
+                target_skin,
+                value,
+                &mut ids,
+            );
+        }
+    }
+    ids
+}
+
+fn collect_referenced_companion_skin_ids<TSource: Read + Seek>(
+    wad: &ltk_wad::Wad<TSource>,
+    champion_lower: &str,
+    target_skin: u32,
+    value: &PropertyValueEnum<NoMeta>,
+    ids: &mut BTreeSet<String>,
+) {
+    match value {
+        PropertyValueEnum::String(value) => {
+            collect_companion_skin_ids_from_string(
+                wad,
+                champion_lower,
+                target_skin,
+                &value.value,
+                ids,
+            );
+        }
+        PropertyValueEnum::Struct(value) => {
+            collect_referenced_companion_skin_ids_from_struct(
+                wad,
+                champion_lower,
+                target_skin,
+                value,
+                ids,
+            );
+        }
+        PropertyValueEnum::Embedded(value) => {
+            collect_referenced_companion_skin_ids_from_struct(
+                wad,
+                champion_lower,
+                target_skin,
+                &value.0,
+                ids,
+            );
+        }
+        PropertyValueEnum::Container(value) => {
+            collect_referenced_companion_skin_ids_from_container(
+                wad,
+                champion_lower,
+                target_skin,
+                value,
+                ids,
+            );
+        }
+        PropertyValueEnum::UnorderedContainer(value) => {
+            collect_referenced_companion_skin_ids_from_container(
+                wad,
+                champion_lower,
+                target_skin,
+                &value.0,
+                ids,
+            );
+        }
+        PropertyValueEnum::Optional(value) => {
+            collect_referenced_companion_skin_ids_from_optional(
+                wad,
+                champion_lower,
+                target_skin,
+                value,
+                ids,
+            );
+        }
+        _ => {}
+    }
+}
+
+fn collect_referenced_companion_skin_ids_from_struct<TSource: Read + Seek>(
+    wad: &ltk_wad::Wad<TSource>,
+    champion_lower: &str,
+    target_skin: u32,
+    value: &values::Struct<NoMeta>,
+    ids: &mut BTreeSet<String>,
+) {
+    for value in value.properties.values() {
+        collect_referenced_companion_skin_ids(wad, champion_lower, target_skin, value, ids);
+    }
+}
+
+fn collect_referenced_companion_skin_ids_from_container<TSource: Read + Seek>(
+    wad: &ltk_wad::Wad<TSource>,
+    champion_lower: &str,
+    target_skin: u32,
+    value: &values::Container<NoMeta>,
+    ids: &mut BTreeSet<String>,
+) {
+    match value {
+        values::Container::String { items, .. } => {
+            for item in items {
+                collect_companion_skin_ids_from_string(
+                    wad,
+                    champion_lower,
+                    target_skin,
+                    &item.value,
+                    ids,
+                );
+            }
+        }
+        values::Container::Struct { items, .. } => {
+            for item in items {
+                collect_referenced_companion_skin_ids_from_struct(
+                    wad,
+                    champion_lower,
+                    target_skin,
+                    item,
+                    ids,
+                );
+            }
+        }
+        values::Container::Embedded { items, .. } => {
+            for item in items {
+                collect_referenced_companion_skin_ids_from_struct(
+                    wad,
+                    champion_lower,
+                    target_skin,
+                    &item.0,
+                    ids,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_referenced_companion_skin_ids_from_optional<TSource: Read + Seek>(
+    wad: &ltk_wad::Wad<TSource>,
+    champion_lower: &str,
+    target_skin: u32,
+    value: &values::Optional<NoMeta>,
+    ids: &mut BTreeSet<String>,
+) {
+    match value {
+        values::Optional::String {
+            value: Some(value), ..
+        } => {
+            collect_companion_skin_ids_from_string(
+                wad,
+                champion_lower,
+                target_skin,
+                &value.value,
+                ids,
+            );
+        }
+        values::Optional::Struct {
+            value: Some(value), ..
+        } => collect_referenced_companion_skin_ids_from_struct(
+            wad,
+            champion_lower,
+            target_skin,
+            value,
+            ids,
+        ),
+        values::Optional::Embedded {
+            value: Some(value), ..
+        } => collect_referenced_companion_skin_ids_from_struct(
+            wad,
+            champion_lower,
+            target_skin,
+            &value.0,
+            ids,
+        ),
+        _ => {}
+    }
+}
+
+fn collect_companion_skin_ids_from_string<TSource: Read + Seek>(
+    wad: &ltk_wad::Wad<TSource>,
+    champion_lower: &str,
+    target_skin: u32,
+    value: &str,
+    ids: &mut BTreeSet<String>,
+) {
+    for candidate in companion_skin_id_candidates_from_string(value, champion_lower) {
+        let candidate_path = skin_bin_path(&candidate, target_skin);
+        if wad
+            .chunks()
+            .contains(wad_path_hash(candidate_path.as_str()))
+        {
+            ids.insert(candidate);
+        }
+    }
+}
+
+fn companion_skin_id_candidates_from_string(value: &str, champion_lower: &str) -> BTreeSet<String> {
+    let mut candidates = BTreeSet::new();
+    if !value.chars().all(|c| c.is_ascii_alphanumeric()) {
+        collect_companion_skin_id_candidates_from_path(value, champion_lower, &mut candidates);
+    } else if value.to_ascii_lowercase() != champion_lower {
+        candidates.insert(value.to_string());
+    }
+    collect_companion_skin_id_candidates_from_terms(value, champion_lower, &mut candidates);
+    candidates
+}
+
+fn collect_companion_skin_id_candidates_from_path(
+    value: &str,
+    champion_lower: &str,
+    candidates: &mut BTreeSet<String>,
+) {
+    let normalized = value.replace('\\', "/");
+    let lower = normalized.to_ascii_lowercase();
+    for prefix in ["assets/characters/", "characters/"] {
+        let Some(start) = lower.find(prefix) else {
+            continue;
+        };
+        let character_start = start + prefix.len();
+        let Some(rest) = normalized.get(character_start..) else {
+            continue;
+        };
+        let Some((character, after_character)) = rest.split_once('/') else {
+            continue;
+        };
+        if !after_character.to_ascii_lowercase().starts_with("skins/") {
+            continue;
+        }
+        if character.to_ascii_lowercase() != champion_lower {
+            candidates.insert(character.to_string());
+        }
+    }
+}
+
+fn collect_companion_skin_id_candidates_from_terms(
+    value: &str,
+    champion_lower: &str,
+    candidates: &mut BTreeSet<String>,
+) {
+    let lower = value.to_ascii_lowercase();
+    let suffixes = [
+        ("packmate", "packmate"),
+        ("ghoulmelee", "ghoul"),
+        ("bigghoul", "ghoul"),
+        ("maiden", "maiden"),
+        ("mistwalker", "mist"),
+        ("minion", "minion"),
+        ("pet", "pet"),
+        ("clone", "clone"),
+        ("spiderling", "spider"),
+        ("voidling", "voidling"),
+        ("tentacle", "tentacle"),
+        ("soldier", "soldier"),
+        ("turret", "turret"),
+        ("plant", "plant"),
+        ("seed", "seed"),
+    ];
+    for (suffix, trigger) in suffixes {
+        if lower.contains(trigger) {
+            candidates.insert(format!("{champion_lower}{suffix}"));
+        }
+    }
 }
 
 struct MountedSourceWad<TSource: Read + Seek> {
@@ -289,7 +583,7 @@ fn rewrite_skin_to_base(
         ))
     })?;
 
-    let object_hash_rewrites = skin_object_hash_rewrites(champion_id, target_skin);
+    let object_hash_rewrites = skin_object_hash_rewrites(champion_id, target_skin, &bin);
     let source_root = skin_object_hash(champion_id, target_skin, None);
     let base_root = skin_object_hash(champion_id, 0, None);
     let mut object = bin.remove_object(source_root).ok_or_else(|| {
@@ -748,8 +1042,12 @@ fn skin_object_hash(champion_id: &str, skin_number: u32, suffix: Option<&str>) -
     ))
 }
 
-fn skin_object_hash_rewrites(champion_id: &str, target_skin: u32) -> HashMap<u32, u32> {
-    [None, Some("/Resources")]
+fn skin_object_hash_rewrites(
+    champion_id: &str,
+    target_skin: u32,
+    bin: &Bin<NoMeta>,
+) -> HashMap<u32, u32> {
+    let mut rewrites: HashMap<u32, u32> = [None, Some("/Resources")]
         .into_iter()
         .map(|suffix| {
             (
@@ -757,7 +1055,221 @@ fn skin_object_hash_rewrites(champion_id: &str, target_skin: u32) -> HashMap<u32
                 skin_object_hash(champion_id, 0, suffix),
             )
         })
-        .collect()
+        .collect();
+    collect_dynamic_skin_object_hash_rewrites(champion_id, target_skin, bin, &mut rewrites);
+    rewrites
+}
+
+fn collect_dynamic_skin_object_hash_rewrites(
+    champion_id: &str,
+    target_skin: u32,
+    bin: &Bin<NoMeta>,
+    rewrites: &mut HashMap<u32, u32>,
+) {
+    let replacements = SkinTokenReplacements::new(target_skin);
+    for object in bin.objects.values() {
+        for value in object.properties.values() {
+            collect_dynamic_skin_object_hash_rewrites_from_value(
+                champion_id,
+                value,
+                &replacements,
+                bin,
+                rewrites,
+            );
+        }
+    }
+}
+
+fn collect_dynamic_skin_object_hash_rewrites_from_value(
+    champion_id: &str,
+    value: &PropertyValueEnum<NoMeta>,
+    replacements: &SkinTokenReplacements,
+    bin: &Bin<NoMeta>,
+    rewrites: &mut HashMap<u32, u32>,
+) {
+    match value {
+        PropertyValueEnum::String(value) => {
+            if let Some((source_hash, target_hash)) =
+                skin_object_path_hash_pair(champion_id, &value.value, replacements)
+            {
+                if bin.contains_object(source_hash) {
+                    rewrites.entry(source_hash).or_insert(target_hash);
+                }
+            }
+        }
+        PropertyValueEnum::Struct(value) => {
+            collect_dynamic_skin_object_hash_rewrites_from_struct(
+                champion_id,
+                value,
+                replacements,
+                bin,
+                rewrites,
+            );
+        }
+        PropertyValueEnum::Embedded(value) => {
+            collect_dynamic_skin_object_hash_rewrites_from_struct(
+                champion_id,
+                &value.0,
+                replacements,
+                bin,
+                rewrites,
+            );
+        }
+        PropertyValueEnum::Container(value) => {
+            collect_dynamic_skin_object_hash_rewrites_from_container(
+                champion_id,
+                value,
+                replacements,
+                bin,
+                rewrites,
+            );
+        }
+        PropertyValueEnum::UnorderedContainer(value) => {
+            collect_dynamic_skin_object_hash_rewrites_from_container(
+                champion_id,
+                &value.0,
+                replacements,
+                bin,
+                rewrites,
+            );
+        }
+        PropertyValueEnum::Optional(value) => {
+            collect_dynamic_skin_object_hash_rewrites_from_optional(
+                champion_id,
+                value,
+                replacements,
+                bin,
+                rewrites,
+            );
+        }
+        _ => {}
+    }
+}
+
+fn collect_dynamic_skin_object_hash_rewrites_from_struct(
+    champion_id: &str,
+    value: &values::Struct<NoMeta>,
+    replacements: &SkinTokenReplacements,
+    bin: &Bin<NoMeta>,
+    rewrites: &mut HashMap<u32, u32>,
+) {
+    for value in value.properties.values() {
+        collect_dynamic_skin_object_hash_rewrites_from_value(
+            champion_id,
+            value,
+            replacements,
+            bin,
+            rewrites,
+        );
+    }
+}
+
+fn collect_dynamic_skin_object_hash_rewrites_from_container(
+    champion_id: &str,
+    value: &values::Container<NoMeta>,
+    replacements: &SkinTokenReplacements,
+    bin: &Bin<NoMeta>,
+    rewrites: &mut HashMap<u32, u32>,
+) {
+    match value {
+        values::Container::String { items, .. } => {
+            for item in items {
+                if let Some((source_hash, target_hash)) =
+                    skin_object_path_hash_pair(champion_id, &item.value, replacements)
+                {
+                    if bin.contains_object(source_hash) {
+                        rewrites.entry(source_hash).or_insert(target_hash);
+                    }
+                }
+            }
+        }
+        values::Container::Struct { items, .. } => {
+            for item in items {
+                collect_dynamic_skin_object_hash_rewrites_from_struct(
+                    champion_id,
+                    item,
+                    replacements,
+                    bin,
+                    rewrites,
+                );
+            }
+        }
+        values::Container::Embedded { items, .. } => {
+            for item in items {
+                collect_dynamic_skin_object_hash_rewrites_from_struct(
+                    champion_id,
+                    &item.0,
+                    replacements,
+                    bin,
+                    rewrites,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_dynamic_skin_object_hash_rewrites_from_optional(
+    champion_id: &str,
+    value: &values::Optional<NoMeta>,
+    replacements: &SkinTokenReplacements,
+    bin: &Bin<NoMeta>,
+    rewrites: &mut HashMap<u32, u32>,
+) {
+    match value {
+        values::Optional::String {
+            value: Some(value), ..
+        } => {
+            if let Some((source_hash, target_hash)) =
+                skin_object_path_hash_pair(champion_id, &value.value, replacements)
+            {
+                if bin.contains_object(source_hash) {
+                    rewrites.entry(source_hash).or_insert(target_hash);
+                }
+            }
+        }
+        values::Optional::Struct {
+            value: Some(value), ..
+        } => {
+            collect_dynamic_skin_object_hash_rewrites_from_struct(
+                champion_id,
+                value,
+                replacements,
+                bin,
+                rewrites,
+            );
+        }
+        values::Optional::Embedded {
+            value: Some(value), ..
+        } => {
+            collect_dynamic_skin_object_hash_rewrites_from_struct(
+                champion_id,
+                &value.0,
+                replacements,
+                bin,
+                rewrites,
+            );
+        }
+        _ => {}
+    }
+}
+
+fn skin_object_path_hash_pair(
+    champion_id: &str,
+    source: &str,
+    replacements: &SkinTokenReplacements,
+) -> Option<(u32, u32)> {
+    let normalized = source.replace('\\', "/");
+    let lower = normalized.to_ascii_lowercase();
+    let prefix = format!("characters/{}/skins/", champion_id.to_ascii_lowercase());
+    if !lower.starts_with(&prefix) {
+        return None;
+    }
+    let target = replace_skin_tokens(&normalized, replacements)?;
+    Some((
+        ltk_hash::fnv1a::hash_lower(&normalized),
+        ltk_hash::fnv1a::hash_lower(&target),
+    ))
 }
 
 fn skin_remap_fingerprint(entries: &HashMap<String, BTreeMap<Utf8PathBuf, Vec<u8>>>) -> u64 {
@@ -890,6 +1402,53 @@ mod tests {
                 0,
                 Some("/Resources")
             )))
+        );
+    }
+
+    #[test]
+    fn rewrite_skin_root_moves_skin_scoped_child_objects_to_base_paths() {
+        let source_path = "Characters/Naafiri/Skins/Skin11/Particles/Naafiri_Skin11_W_Dash";
+        let target_path = "Characters/Naafiri/Skins/Skin0/Particles/Naafiri_Skin0_W_Dash";
+        let path_property = ltk_hash::fnv1a::hash_lower("path");
+        let link_property = ltk_hash::fnv1a::hash_lower("effectLink");
+        let root = BinObject::<NoMeta>::builder(
+            skin_object_hash("Naafiri", 11, None),
+            ltk_hash::fnv1a::hash_lower("SkinCharacterDataProperties"),
+        )
+        .property(
+            link_property,
+            values::ObjectLink::from(ltk_hash::fnv1a::hash_lower(source_path)),
+        )
+        .build();
+        let effect = BinObject::<NoMeta>::builder(
+            ltk_hash::fnv1a::hash_lower(source_path),
+            ltk_hash::fnv1a::hash_lower("VfxSystemDefinitionData"),
+        )
+        .property(path_property, values::String::from(source_path))
+        .build();
+        let bin = Bin::new([root, effect], ["DATA/Characters/Test/Test.bin"]);
+        let mut bytes = Cursor::new(Vec::new());
+        bin.to_writer(&mut bytes).unwrap();
+
+        let rewrite = rewrite_skin_to_base("Naafiri", 11, bytes.into_inner()).unwrap();
+        let bin = Bin::from_reader(&mut Cursor::new(rewrite.bin_bytes)).unwrap();
+        let root = bin
+            .get_object(skin_object_hash("Naafiri", 0, None))
+            .unwrap();
+        let effect = bin
+            .get_object(ltk_hash::fnv1a::hash_lower(target_path))
+            .unwrap();
+
+        assert!(!bin.contains_object(ltk_hash::fnv1a::hash_lower(source_path)));
+        assert_eq!(
+            root.get_property(link_property).unwrap(),
+            &PropertyValueEnum::ObjectLink(values::ObjectLink::from(ltk_hash::fnv1a::hash_lower(
+                target_path
+            )))
+        );
+        assert_eq!(
+            effect.get_property(path_property).unwrap(),
+            &PropertyValueEnum::String(values::String::from(target_path))
         );
     }
 
@@ -1045,6 +1604,137 @@ mod tests {
                 b"localized-particle".to_vec()
             )]
         );
+    }
+
+    #[test]
+    fn skin_remap_content_generates_referenced_companion_skin_overrides() {
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path();
+        let champions_dir = game_dir.join("DATA").join("FINAL").join("Champions");
+        std::fs::create_dir_all(&champions_dir).unwrap();
+        let wad_path = champions_dir.join("Naafiri.wad.client");
+        let companion_source_path =
+            "assets/characters/naafiripackmate/skins/skin20/naafiripackmate_skin20.skn";
+        let companion_target_path =
+            "assets/characters/naafiripackmate/skins/skin0/naafiripackmate_skin0.skn";
+
+        write_test_wad(
+            &wad_path,
+            vec![
+                (
+                    "data/characters/naafiri/skins/skin20.bin",
+                    sample_skin_bin_with_strings(
+                        "Naafiri",
+                        20,
+                        &[("companionCharacter", "NaafiriPackmate")],
+                    ),
+                ),
+                (
+                    "data/characters/naafiripackmate/skins/skin20.bin",
+                    sample_skin_bin_with_strings(
+                        "NaafiriPackmate",
+                        20,
+                        &[(
+                            "modelPath",
+                            "ASSETS/Characters/NaafiriPackmate/Skins/Skin20/NaafiriPackmate_Skin20.skn",
+                        )],
+                    ),
+                ),
+                (companion_source_path, b"companion-model".to_vec()),
+            ],
+        );
+
+        let mut content = SkinRemapContent::new(
+            game_dir.to_path_buf(),
+            vec![SkinRemap {
+                champion_id: "Naafiri".to_string(),
+                champion_name: "Naafiri".to_string(),
+                target_skin_number: 20,
+                target_skin_name: Some("Glizzy Naafiri".to_string()),
+                target_chroma_id: None,
+                target_chroma_name: None,
+            }],
+        )
+        .unwrap();
+
+        let overrides = content
+            .read_wad_overrides(BASE_LAYER, "naafiri.wad.client")
+            .unwrap();
+        let override_paths = overrides
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .collect::<BTreeSet<_>>();
+
+        assert!(override_paths.contains("data/characters/naafiri/skins/skin0.bin"));
+        assert!(override_paths.contains("data/characters/naafiripackmate/skins/skin0.bin"));
+        assert!(override_paths.contains(companion_target_path));
+
+        let companion_bin_bytes = overrides
+            .iter()
+            .find(|(path, _)| path.as_str() == "data/characters/naafiripackmate/skins/skin0.bin")
+            .map(|(_, bytes)| bytes)
+            .unwrap();
+        let companion_bin = Bin::from_reader(&mut Cursor::new(companion_bin_bytes)).unwrap();
+        assert!(companion_bin.contains_object(skin_object_hash("NaafiriPackmate", 0, None)));
+        assert!(!companion_bin.contains_object(skin_object_hash("NaafiriPackmate", 20, None)));
+    }
+
+    #[test]
+    fn skin_remap_content_generates_term_referenced_companion_skin_overrides() {
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path();
+        let champions_dir = game_dir.join("DATA").join("FINAL").join("Champions");
+        std::fs::create_dir_all(&champions_dir).unwrap();
+        let wad_path = champions_dir.join("Yorick.wad.client");
+
+        write_test_wad(
+            &wad_path,
+            vec![
+                (
+                    "data/characters/yorick/skins/skin4.bin",
+                    sample_skin_bin_with_strings(
+                        "Yorick",
+                        4,
+                        &[("ghoulSfx", "Play_sfx_YorickSkin04_YorickQ_GhoulAttack_cast")],
+                    ),
+                ),
+                (
+                    "data/characters/yorickghoulmelee/skins/skin4.bin",
+                    sample_skin_bin_with_strings(
+                        "YorickGhoulMelee",
+                        4,
+                        &[(
+                            "modelPath",
+                            "ASSETS/Characters/YorickGhoulMelee/Skins/Skin04/YorickGhoulMelee_Skin04.skn",
+                        )],
+                    ),
+                ),
+            ],
+        );
+
+        let mut content = SkinRemapContent::new(
+            game_dir.to_path_buf(),
+            vec![SkinRemap {
+                champion_id: "Yorick".to_string(),
+                champion_name: "Yorick".to_string(),
+                target_skin_number: 4,
+                target_skin_name: Some("Meowrick".to_string()),
+                target_chroma_id: None,
+                target_chroma_name: None,
+            }],
+        )
+        .unwrap();
+
+        let overrides = content
+            .read_wad_overrides(BASE_LAYER, "yorick.wad.client")
+            .unwrap();
+        let override_paths = overrides
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .collect::<BTreeSet<_>>();
+
+        assert!(override_paths.contains("data/characters/yorick/skins/skin0.bin"));
+        assert!(override_paths.contains("data/characters/yorickghoulmelee/skins/skin0.bin"));
     }
 
     #[test]
