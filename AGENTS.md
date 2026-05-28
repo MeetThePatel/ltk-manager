@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-Tauri v2 desktop app — Rust backend, React/TypeScript frontend. It's the League Toolkit mod manager.
+Tauri v2 desktop app — Rust backend, React/TypeScript frontend.
 
 ## Setup
 
