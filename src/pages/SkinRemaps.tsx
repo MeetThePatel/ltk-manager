@@ -1,7 +1,7 @@
-import { RotateCcw, Search } from "lucide-react";
+import { RotateCcw, Search, TriangleAlert } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 
-import { Button, Select, Spinner, useToast } from "@/components";
+import { Button, Dialog, Select, Spinner, useToast } from "@/components";
 import type { GameChampion, SkinRemap } from "@/lib/tauri";
 import { LeagueSessionStatusBand } from "@/modules/league-session";
 import {
@@ -15,6 +15,7 @@ import { useGameChampions } from "@/modules/settings";
 export function SkinRemaps() {
   const toast = useToast();
   const [searchQuery, setSearchQuery] = useState("");
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
   const { data: activeProfile } = useActiveProfile();
   const { data: champions = [], isLoading, error } = useGameChampions();
@@ -108,8 +109,12 @@ export function SkinRemaps() {
       ),
     );
 
+    setIsConfirmOpen(false);
+
     if (results.some((result) => result.status === "rejected")) {
       toast.error("Failed to reset all remaps");
+    } else {
+      toast.success("Successfully reset all skin remaps");
     }
   }
 
@@ -134,7 +139,7 @@ export function SkinRemaps() {
             left={<RotateCcw className="h-4 w-4" />}
             loading={removeSkinRemap.isPending}
             disabled={!activeProfile || remaps.length === 0}
-            onClick={handleResetAll}
+            onClick={() => setIsConfirmOpen(true)}
             className="shrink-0"
           >
             Reset all
@@ -166,6 +171,51 @@ export function SkinRemaps() {
           onReset={handleRemoveRemap}
         />
       )}
+
+      <Dialog.Root open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+        <Dialog.Portal>
+          <Dialog.Backdrop />
+          <Dialog.Overlay>
+            <Dialog.Header>
+              <Dialog.Title>Reset All Skin Remaps</Dialog.Title>
+              <Dialog.Close />
+            </Dialog.Header>
+
+            <Dialog.Body>
+              <div className="flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+                <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+                <div>
+                  <h3 className="font-medium text-red-300">
+                    Are you sure you want to reset all skin remaps?
+                  </h3>
+                  <p className="mt-1 text-sm text-surface-400">
+                    This will revert all champions back to their default skins and chromas.
+                  </p>
+                  <p className="mt-2 text-xs text-surface-500">This action cannot be undone.</p>
+                </div>
+              </div>
+            </Dialog.Body>
+
+            <Dialog.Footer>
+              <Button
+                variant="ghost"
+                onClick={() => setIsConfirmOpen(false)}
+                disabled={removeSkinRemap.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="filled"
+                onClick={handleResetAll}
+                loading={removeSkinRemap.isPending}
+                className="bg-red-600 hover:bg-red-500"
+              >
+                Reset all
+              </Button>
+            </Dialog.Footer>
+          </Dialog.Overlay>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
