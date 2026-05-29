@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 use xxhash_rust::{xxh3::xxh3_64, xxh64::xxh64};
 
 const BASE_LAYER: &str = "base";
-const SKIN_REMAP_VERSION: u64 = 14;
 
 pub struct SkinRemapContent {
     entries: HashMap<String, BTreeMap<Utf8PathBuf, Vec<u8>>>,
@@ -1056,7 +1055,6 @@ fn skin_object_hash_rewrites(champion_id: &str, target_skin: u32) -> HashMap<u32
 
 fn skin_remap_fingerprint(entries: &HashMap<String, BTreeMap<Utf8PathBuf, Vec<u8>>>) -> u64 {
     let mut buf = Vec::new();
-    buf.extend_from_slice(&SKIN_REMAP_VERSION.to_le_bytes());
     let mut wad_names: Vec<&String> = entries.keys().collect();
     wad_names.sort();
     for wad_name in wad_names {
@@ -1671,5 +1669,65 @@ mod tests {
         .unwrap();
 
         assert_ne!(first.fingerprint(), second.fingerprint());
+    }
+
+    #[test]
+    fn test_skin_remap_fingerprint_same_entries() {
+        let mut entries1 = HashMap::new();
+        let mut entry_map1 = BTreeMap::new();
+        entry_map1.insert(Utf8PathBuf::from("a/b/c"), vec![1, 2, 3]);
+        entries1.insert("wad1".to_string(), entry_map1);
+
+        let mut entries2 = HashMap::new();
+        let mut entry_map2 = BTreeMap::new();
+        entry_map2.insert(Utf8PathBuf::from("a/b/c"), vec![1, 2, 3]);
+        entries2.insert("wad1".to_string(), entry_map2);
+
+        assert_eq!(skin_remap_fingerprint(&entries1), skin_remap_fingerprint(&entries2));
+    }
+
+    #[test]
+    fn test_skin_remap_fingerprint_changing_path() {
+        let mut entries1 = HashMap::new();
+        let mut entry_map1 = BTreeMap::new();
+        entry_map1.insert(Utf8PathBuf::from("a/b/c"), vec![1, 2, 3]);
+        entries1.insert("wad1".to_string(), entry_map1);
+
+        let mut entries2 = HashMap::new();
+        let mut entry_map2 = BTreeMap::new();
+        entry_map2.insert(Utf8PathBuf::from("a/b/d"), vec![1, 2, 3]);
+        entries2.insert("wad1".to_string(), entry_map2);
+
+        assert_ne!(skin_remap_fingerprint(&entries1), skin_remap_fingerprint(&entries2));
+    }
+
+    #[test]
+    fn test_skin_remap_fingerprint_changing_bytes() {
+        let mut entries1 = HashMap::new();
+        let mut entry_map1 = BTreeMap::new();
+        entry_map1.insert(Utf8PathBuf::from("a/b/c"), vec![1, 2, 3]);
+        entries1.insert("wad1".to_string(), entry_map1);
+
+        let mut entries2 = HashMap::new();
+        let mut entry_map2 = BTreeMap::new();
+        entry_map2.insert(Utf8PathBuf::from("a/b/c"), vec![1, 2, 4]);
+        entries2.insert("wad1".to_string(), entry_map2);
+
+        assert_ne!(skin_remap_fingerprint(&entries1), skin_remap_fingerprint(&entries2));
+    }
+
+    #[test]
+    fn test_skin_remap_fingerprint_changing_wad() {
+        let mut entries1 = HashMap::new();
+        let mut entry_map1 = BTreeMap::new();
+        entry_map1.insert(Utf8PathBuf::from("a/b/c"), vec![1, 2, 3]);
+        entries1.insert("wad1".to_string(), entry_map1);
+
+        let mut entries2 = HashMap::new();
+        let mut entry_map2 = BTreeMap::new();
+        entry_map2.insert(Utf8PathBuf::from("a/b/c"), vec![1, 2, 3]);
+        entries2.insert("wad2".to_string(), entry_map2);
+
+        assert_ne!(skin_remap_fingerprint(&entries1), skin_remap_fingerprint(&entries2));
     }
 }
