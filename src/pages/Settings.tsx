@@ -7,6 +7,7 @@ import {
   Settings as SettingsIcon,
   ShieldAlert,
   Stethoscope,
+  Type,
   Users,
 } from "lucide-react";
 
@@ -17,6 +18,7 @@ import {
   AuthorProfilesSection,
   GeneralSection,
   HotkeySection,
+  LeagueFontSection,
   PatchingSection,
   useAppInfo,
   useSaveSettings,
@@ -101,6 +103,14 @@ export function Settings() {
           </Tabs.Tab>
           <Tabs.Tab
             variant="pills"
+            value="fonts"
+            className="flex items-center gap-2.5 text-left data-active:bg-accent-500/15 data-active:text-accent-300"
+          >
+            <Type className="h-4 w-4 shrink-0" />
+            Fonts
+          </Tabs.Tab>
+          <Tabs.Tab
+            variant="pills"
             value="diagnostics"
             className="flex items-center gap-2.5 text-left data-active:bg-accent-500/15 data-active:text-accent-300"
           >
@@ -148,6 +158,10 @@ export function Settings() {
 
           <Tabs.Panel value="appearance" className="mx-auto max-w-2xl p-6">
             <AppearanceSection settings={settings} onSave={saveSettings} />
+          </Tabs.Panel>
+
+          <Tabs.Panel value="fonts" className="mx-auto max-w-2xl p-6">
+            <LeagueFontSection />
           </Tabs.Panel>
 
           <Tabs.Panel value="diagnostics" className="mx-auto max-w-4xl p-6">

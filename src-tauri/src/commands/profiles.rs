@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult, IpcResult, MutexResultExt};
-use crate::mods::{ModLibraryState, Profile, SkinRemap};
+use crate::mods::{LeagueFontSettings, ModLibraryState, Profile, SkinRemap};
 use crate::patcher::PatcherState;
 use crate::state::SettingsState;
 use tauri::State;
@@ -157,6 +157,39 @@ pub fn remove_skin_remap(
         library
             .0
             .remove_skin_remap(&settings, profile_id, champion_id)
+    })();
+    result.into()
+}
+
+/// Get league font settings for a profile. Defaults to the active profile when profile_id is null.
+#[tauri::command]
+pub fn get_league_font_settings(
+    profile_id: Option<String>,
+    library: State<ModLibraryState>,
+    settings: State<SettingsState>,
+) -> IpcResult<LeagueFontSettings> {
+    let result: AppResult<LeagueFontSettings> = (|| {
+        let settings = settings.0.lock().mutex_err()?.clone();
+        library.0.get_league_font_settings(&settings, profile_id)
+    })();
+    result.into()
+}
+
+/// Set league font settings for a profile. Defaults to the active profile when profile_id is null.
+#[tauri::command]
+pub fn set_league_font_settings(
+    profile_id: Option<String>,
+    font_settings: LeagueFontSettings,
+    library: State<ModLibraryState>,
+    settings: State<SettingsState>,
+    patcher: State<PatcherState>,
+) -> IpcResult<Profile> {
+    let result: AppResult<Profile> = (|| {
+        reject_if_patcher_running(&patcher)?;
+        let settings = settings.0.lock().mutex_err()?.clone();
+        library
+            .0
+            .set_league_font_settings(&settings, profile_id, font_settings)
     })();
     result.into()
 }

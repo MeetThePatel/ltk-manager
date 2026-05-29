@@ -65,6 +65,8 @@ slug = "0.1"
 notify = { version = "7", default-features = false }
 notify-debouncer-mini = "0.5"
 walkdir = "2.5"
+fontdb = "0.21"
+ttf-parser = "0.21"
 
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 url = "2"

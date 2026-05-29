@@ -226,10 +226,84 @@ pub struct Profile {
     /// Riot skin slot remaps configured for this profile.
     #[serde(default)]
     pub skin_remaps: Vec<SkinRemap>,
+    /// League font overrides configured for this profile.
+    #[serde(default)]
+    pub font_settings: LeagueFontSettings,
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
     /// Last time this profile was used/switched to
     pub last_used: DateTime<Utc>,
+}
+
+/// League font settings configured for this profile.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct LeagueFontSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub single_font: Option<FontSelection>,
+}
+
+/// A selected local/system font.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct FontSelection {
+    pub family: String,
+    pub full_name: String,
+    pub style: String,
+    pub weight: u16,
+    #[ts(as = "String")]
+    pub path: PathBuf,
+    #[serde(default)]
+    pub face_index: Option<u32>,
+}
+
+/// Discovered system font.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemFont {
+    pub family: String,
+    pub full_name: String,
+    pub style: String,
+    pub weight: u16,
+    #[ts(as = "String")]
+    pub path: PathBuf,
+    #[serde(default)]
+    pub face_index: Option<u32>,
+    pub is_valid: bool,
+    #[serde(default)]
+    pub issues: Vec<FontValidationIssue>,
+}
+
+/// Validation details for a specific font.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct FontValidation {
+    pub is_valid: bool,
+    pub issues: Vec<FontValidationIssue>,
+}
+
+/// A specific validation issue or warning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct FontValidationIssue {
+    pub severity: FontValidationSeverity,
+    pub message: String,
+}
+
+/// Severity level of a validation issue.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub enum FontValidationSeverity {
+    Warning,
+    Error,
 }
 
 /// A per-profile regular skin slot remap.
@@ -372,6 +446,7 @@ impl Default for LibraryIndex {
             mod_order: Vec::new(),
             layer_states: HashMap::new(),
             skin_remaps: Vec::new(),
+            font_settings: LeagueFontSettings::default(),
             created_at: Utc::now(),
             last_used: Utc::now(),
         };
@@ -867,6 +942,7 @@ mod tests {
                 mod_order: Vec::new(),
                 layer_states: HashMap::new(),
                 skin_remaps: Vec::new(),
+                font_settings: LeagueFontSettings::default(),
                 created_at: Utc::now(),
                 last_used: Utc::now(),
             }],
@@ -895,6 +971,7 @@ mod tests {
                 mod_order: Vec::new(),
                 layer_states: HashMap::new(),
                 skin_remaps: Vec::new(),
+                font_settings: LeagueFontSettings::default(),
                 created_at: Utc::now(),
                 last_used: Utc::now(),
             }],
@@ -923,6 +1000,7 @@ mod tests {
                 mod_order: Vec::new(),
                 layer_states: HashMap::new(),
                 skin_remaps: Vec::new(),
+                font_settings: LeagueFontSettings::default(),
                 created_at: Utc::now(),
                 last_used: Utc::now(),
             }],
@@ -1048,6 +1126,7 @@ mod tests {
             mod_order: Vec::new(),
             layer_states: HashMap::new(),
             skin_remaps: Vec::new(),
+            font_settings: LeagueFontSettings::default(),
             created_at: Utc::now(),
             last_used: Utc::now(),
         });
@@ -1088,6 +1167,7 @@ mod tests {
             enabled_mods: enabled.into_iter().map(String::from).collect(),
             layer_states: HashMap::new(),
             skin_remaps: Vec::new(),
+            font_settings: LeagueFontSettings::default(),
             created_at: Utc::now(),
             last_used: Utc::now(),
         }

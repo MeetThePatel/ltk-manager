@@ -9,6 +9,7 @@ mod diagnostics;
 mod error;
 mod hotkeys;
 pub mod league_client;
+pub mod league_font;
 pub mod league_session;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod legacy_patcher;
@@ -114,6 +115,10 @@ fn main() {
             commands::get_skin_remaps,
             commands::set_skin_remap,
             commands::remove_skin_remap,
+            commands::get_league_font_settings,
+            commands::set_league_font_settings,
+            commands::list_system_fonts,
+            commands::validate_league_font,
             // Shell
             commands::reveal_in_explorer,
             commands::minimize_to_tray,

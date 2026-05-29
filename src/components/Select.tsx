@@ -294,6 +294,7 @@ export function SelectField({
   description,
   error,
   required,
+  placeholder,
   options,
   value,
   defaultValue,
@@ -322,9 +323,12 @@ export function SelectField({
         name={name}
       >
         <SelectTrigger hasError={!!error} className={triggerClassName}>
-          <SelectValue>
+          <SelectValue placeholder={placeholder}>
             {(current) =>
-              options.find((o) => o.value === current)?.label ?? (current as string | null) ?? ""
+              options.find((o) => o.value === current)?.label ??
+              (current as string | null) ??
+              placeholder ??
+              ""
             }
           </SelectValue>
           <SelectIcon />

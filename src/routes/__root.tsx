@@ -6,10 +6,12 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 import { useToast } from "@/components";
 import { usePlatformSupport, useReducedMotion } from "@/hooks";
+import { queryClient } from "@/lib/query";
 import { api, type AppError, isErr } from "@/lib/tauri";
 import { useTauriEvent } from "@/lib/useTauriEvent";
 import { ProtocolInstallDialog, useDeepLinkListener } from "@/modules/deep-link";
 import { useLibraryWatcher } from "@/modules/library";
+import { systemFontsQueryOptions } from "@/modules/library/api";
 import { PatcherStatusPill } from "@/modules/patcher";
 import { useAppInfo, useCheckSetupRequired, useSettings } from "@/modules/settings";
 import { DevConsole, TitleBar, useDevLogStream } from "@/modules/shell";
@@ -30,6 +32,14 @@ function RootLayout() {
   useDevLogStream();
   useDeepLinkListener();
   useLibraryWatcher();
+
+  useEffect(() => {
+    // Prefetch system fonts with low priority after critical startup flows complete
+    const timer = setTimeout(() => {
+      void queryClient.prefetchQuery(systemFontsQueryOptions());
+    }, 5000); // 5-second delay to ensure setup checks, updater flow, and app render settle first
+    return () => clearTimeout(timer);
+  }, []);
 
   const { data: platform } = usePlatformSupport();
   const isMacOS = platform?.os === "macos";

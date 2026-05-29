@@ -556,6 +556,7 @@ impl ModLibrary {
         super::ProfileSlug,
         Vec<ltk_overlay::EnabledMod>,
         Vec<super::SkinRemap>,
+        super::LeagueFontSettings,
     )> {
         self.with_index(settings, |storage_dir, index| {
             let active_profile_id = index.active_profile_id.clone();
@@ -629,6 +630,7 @@ impl ModLibrary {
                 active_profile.slug.clone(),
                 enabled_mods,
                 active_profile.skin_remaps.clone(),
+                active_profile.font_settings.clone(),
             ))
         })
     }

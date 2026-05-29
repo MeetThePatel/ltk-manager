@@ -318,3 +318,7 @@ body {
 .backdrop-active ::-webkit-scrollbar-track {
   background-color: transparent;
 }
+
+[hidden] {
+  display: none !important;
+}

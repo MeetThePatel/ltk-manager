@@ -18,6 +18,12 @@ export {
 export { useFolderToggle } from "./useFolderToggle";
 export { useInstallMod } from "./useInstallMod";
 export { useInstallProgress } from "./useInstallProgress";
+export {
+  systemFontsQueryOptions,
+  useLeagueFontSettings,
+  useSetLeagueFontSettings,
+  useSystemFonts,
+} from "./useLeagueFontSettings";
 export { useLibraryActions } from "./useLibraryActions";
 export type { ContentView } from "./useLibraryContent";
 export { useLibraryContent } from "./useLibraryContent";

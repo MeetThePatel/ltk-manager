@@ -11,11 +11,14 @@ import type {
   DiagnosticReport,
   EditModMetadataArgs,
   FantomePeekResult,
+  FontSelection,
+  FontValidation,
   GameChampion,
   HotkeyAction,
   ImportFantomeArgs,
   ImportGitRepoArgs,
   InstalledMod,
+  LeagueFontSettings,
   LeagueSessionStateInner,
   LibraryFolder,
   ModpkgInfo,
@@ -30,6 +33,7 @@ import type {
   Settings,
   SkinRemap,
   StorageMedium,
+  SystemFont,
   ValidationResult,
   WorkshopLayerInfo,
   WorkshopProject,
@@ -155,6 +159,16 @@ export const api = {
     invokeResult<Profile>("set_skin_remap", { profileId: profileId ?? null, remap }),
   removeSkinRemap: (championId: string, profileId?: string | null) =>
     invokeResult<Profile>("remove_skin_remap", { profileId: profileId ?? null, championId }),
+  getLeagueFontSettings: (profileId?: string | null) =>
+    invokeResult<LeagueFontSettings>("get_league_font_settings", { profileId: profileId ?? null }),
+  setLeagueFontSettings: (fontSettings: LeagueFontSettings, profileId?: string | null) =>
+    invokeResult<Profile>("set_league_font_settings", {
+      profileId: profileId ?? null,
+      fontSettings,
+    }),
+  listSystemFonts: () => invokeResult<SystemFont[]>("list_system_fonts"),
+  validateLeagueFont: (selection: FontSelection) =>
+    invokeResult<FontValidation>("validate_league_font", { selection }),
 
   // Folders
   getFolders: () => invokeResult<LibraryFolder[]>("get_folders"),

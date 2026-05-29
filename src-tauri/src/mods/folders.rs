@@ -367,7 +367,9 @@ impl ModLibrary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mods::{LibraryModEntry, ModArchiveFormat, Profile, ProfileSlug};
+    use crate::mods::{
+        LeagueFontSettings, LibraryModEntry, ModArchiveFormat, Profile, ProfileSlug,
+    };
     use chrono::Utc;
     use std::collections::HashMap;
 
@@ -396,6 +398,7 @@ mod tests {
             mod_order: mod_order.into_iter().map(String::from).collect(),
             layer_states: HashMap::new(),
             skin_remaps: Vec::new(),
+            font_settings: LeagueFontSettings::default(),
             created_at: Utc::now(),
             last_used: Utc::now(),
         }

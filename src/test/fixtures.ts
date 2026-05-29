@@ -61,6 +61,7 @@ export function createMockProfile(overrides?: Partial<Profile>): Profile {
     modOrder: [],
     layerStates: {},
     skinRemaps: [],
+    fontSettings: { enabled: false, singleFont: null },
     createdAt: "2025-01-01T00:00:00.000Z",
     lastUsed: "2025-01-01T00:00:00.000Z",
     ...overrides,

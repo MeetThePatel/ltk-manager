@@ -67,7 +67,7 @@ impl ModLibrary {
     ) -> AppResult<PathBuf> {
         let storage_dir = self.storage_dir(settings)?;
         let game_dir = resolve_game_dir(settings)?;
-        let (profile_slug, enabled_mods, mut skin_remaps) =
+        let (profile_slug, enabled_mods, mut skin_remaps, font_settings) =
             self.get_enabled_mods_for_overlay(settings)?;
 
         match actualization {
@@ -169,6 +169,41 @@ impl ModLibrary {
             });
         }
         all_mods.extend(enabled_mods);
+        if font_settings.enabled {
+            let selection = font_settings.single_font.as_ref().ok_or_else(|| {
+                AppError::Other("Custom League font enabled but no font is selected".to_string())
+            })?;
+
+            let validation =
+                crate::league_font::validate_font_file(&selection.path, selection.face_index);
+            if !validation.is_valid {
+                let errors: Vec<String> = validation
+                    .issues
+                    .iter()
+                    .filter(|i| matches!(i.severity, crate::mods::FontValidationSeverity::Error))
+                    .map(|i| i.message.clone())
+                    .collect();
+                return Err(AppError::Other(format!(
+                    "Font validation failed for selected font '{}' ({}): {}",
+                    selection.full_name,
+                    selection.path.display(),
+                    errors.join("; ")
+                )));
+            }
+
+            let font_content = crate::league_font::LeagueFontContent::new(selection.clone())?;
+            let id = format!("ltk:font:{:016x}", font_content.fingerprint());
+            tracing::info!(
+                "Adding generated font overrides: id={} path={}",
+                id,
+                selection.path.display()
+            );
+            all_mods.push(ltk_overlay::EnabledMod {
+                id,
+                content: Box::new(font_content),
+                enabled_layers: None,
+            });
+        }
         if !skin_remaps.is_empty() {
             let content = SkinRemapContent::new(game_dir.clone(), skin_remaps)?;
             let id = format!("ltk:skin-remaps:{:016x}", content.fingerprint());

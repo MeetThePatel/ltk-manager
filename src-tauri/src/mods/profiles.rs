@@ -6,8 +6,8 @@ use std::fs;
 use uuid::Uuid;
 
 use super::{
-    get_active_profile, get_profile_by_id, resolve_profile_dirs, ModLibrary, Profile, ProfileSlug,
-    SkinRemap,
+    get_active_profile, get_profile_by_id, resolve_profile_dirs, LeagueFontSettings, ModLibrary,
+    Profile, ProfileSlug, SkinRemap,
 };
 
 impl ModLibrary {
@@ -48,6 +48,7 @@ impl ModLibrary {
                 mod_order,
                 layer_states: HashMap::new(),
                 skin_remaps: Vec::new(),
+                font_settings: LeagueFontSettings::default(),
                 created_at: Utc::now(),
                 last_used: Utc::now(),
             };
@@ -196,6 +197,42 @@ impl ModLibrary {
         })
     }
 
+    /// Get league font settings for a profile, defaulting to the active profile.
+    pub fn get_league_font_settings(
+        &self,
+        settings: &Settings,
+        profile_id: Option<String>,
+    ) -> AppResult<LeagueFontSettings> {
+        self.with_index(settings, |_storage_dir, index| {
+            let profile_id = profile_id.unwrap_or_else(|| index.active_profile_id.clone());
+            let profile = get_profile_by_id(index, &profile_id)?;
+            Ok(profile.font_settings.clone())
+        })
+    }
+
+    /// Set league font settings for a profile, defaulting to the active profile.
+    pub fn set_league_font_settings(
+        &self,
+        settings: &Settings,
+        profile_id: Option<String>,
+        font_settings: LeagueFontSettings,
+    ) -> AppResult<Profile> {
+        let font_settings = normalize_league_font_settings(font_settings)?;
+
+        self.mutate_index(settings, |_storage_dir, index| {
+            let profile_id = profile_id.unwrap_or_else(|| index.active_profile_id.clone());
+            let profile = index
+                .profiles
+                .iter_mut()
+                .find(|p| p.id == profile_id)
+                .ok_or_else(|| AppError::Other(format!("Profile {} not found", profile_id)))?;
+
+            profile.font_settings = font_settings;
+
+            Ok(profile.clone())
+        })
+    }
+
     /// Get skin remaps for a profile, defaulting to the active profile.
     pub fn get_skin_remaps(
         &self,
@@ -294,6 +331,35 @@ fn normalize_skin_remap(remap: SkinRemap) -> AppResult<SkinRemap> {
     })
 }
 
+pub fn normalize_league_font_settings(
+    mut font_settings: LeagueFontSettings,
+) -> AppResult<LeagueFontSettings> {
+    if !font_settings.enabled {
+        font_settings.single_font = None;
+    } else if font_settings.single_font.is_none() {
+        return Err(AppError::Other(
+            "Cannot enable custom font without a selected font".to_string(),
+        ));
+    } else if let Some(selection) = &font_settings.single_font {
+        let validation = crate::league_font::validate_league_font(selection.clone());
+        if !validation.is_valid {
+            let errors: Vec<String> = validation
+                .issues
+                .iter()
+                .filter(|issue| matches!(issue.severity, super::FontValidationSeverity::Error))
+                .map(|issue| issue.message.clone())
+                .collect();
+            return Err(AppError::Other(format!(
+                "Selected League font '{}' ({}) is invalid: {}",
+                selection.full_name,
+                selection.path.display(),
+                errors.join("; ")
+            )));
+        }
+    }
+    Ok(font_settings)
+}
+
 fn normalize_champion_id(champion_id: &str) -> AppResult<String> {
     let champion_id = champion_id.trim().to_ascii_lowercase();
     if champion_id.is_empty() {
@@ -341,5 +407,56 @@ mod tests {
         });
 
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_normalize_league_font_settings() {
+        use crate::mods::FontSelection;
+        use std::path::PathBuf;
+
+        let invalid = LeagueFontSettings {
+            enabled: true,
+            single_font: None,
+        };
+        assert!(normalize_league_font_settings(invalid).is_err());
+
+        let selection = FontSelection {
+            family: "Mock".to_string(),
+            full_name: "Mock Regular".to_string(),
+            style: "Regular".to_string(),
+            weight: 400,
+            path: PathBuf::from("mock_path"),
+            face_index: None,
+        };
+        let disabled_with_font = LeagueFontSettings {
+            enabled: false,
+            single_font: Some(selection),
+        };
+        let normalized = normalize_league_font_settings(disabled_with_font).unwrap();
+        assert!(!normalized.enabled);
+        assert!(normalized.single_font.is_none());
+    }
+
+    #[test]
+    fn normalize_league_font_settings_rejects_invalid_selected_font() {
+        use crate::mods::FontSelection;
+        use std::path::PathBuf;
+
+        let invalid = LeagueFontSettings {
+            enabled: true,
+            single_font: Some(FontSelection {
+                family: "Missing".to_string(),
+                full_name: "Missing Regular".to_string(),
+                style: "Regular".to_string(),
+                weight: 400,
+                path: PathBuf::from("/definitely/missing/font.ttf"),
+                face_index: None,
+            }),
+        };
+
+        let err = normalize_league_font_settings(invalid).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Selected League font 'Missing Regular'"));
     }
 }

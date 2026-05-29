@@ -202,7 +202,10 @@ export const ComboboxEmpty = forwardRef<HTMLDivElement, ComboboxEmptyProps>(
     return (
       <BaseCombobox.Empty
         ref={ref}
-        className={twMerge("px-3 py-6 text-center text-sm text-surface-400", className)}
+        className={twMerge(
+          "hidden px-3 py-6 text-center text-sm text-surface-400 data-[state=empty]:block",
+          className,
+        )}
         {...props}
       >
         {children ?? "No results found"}
@@ -420,9 +423,9 @@ export function ComboboxField({
 }: ComboboxFieldProps) {
   const filter = useComboboxFilter();
 
-  const selectedOption = value != null ? options.find((o) => o.value === value) : undefined;
+  const selectedOption = value != null ? options.find((o) => o.value === value) || null : null;
   const defaultOption =
-    defaultValue != null ? options.find((o) => o.value === defaultValue) : undefined;
+    defaultValue != null ? options.find((o) => o.value === defaultValue) || null : null;
 
   return (
     <div className={twMerge("flex flex-col gap-1.5", className)}>
