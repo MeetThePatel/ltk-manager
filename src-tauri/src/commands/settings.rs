@@ -99,8 +99,7 @@ fn save_settings_inner(
     let mut current = state.0.lock().mutex_err()?;
     *current = settings;
 
-    // Trigger asynchronous background prewarming with the new settings
-    crate::setup::prewarm_resources(app_handle.clone());
+    crate::prewarm::spawn(app_handle.clone());
 
     Ok(())
 }

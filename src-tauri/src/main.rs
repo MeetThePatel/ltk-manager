@@ -18,6 +18,7 @@ mod logging;
 mod mods;
 mod overlay;
 pub mod patcher;
+mod prewarm;
 mod setup;
 mod skin_remap;
 mod state;

@@ -11,12 +11,21 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use super::{
-    BulkInstallError, BulkInstallResult, InstallProgress, InstalledMod, LibraryIndex,
-    LibraryModEntry, ModArchiveFormat, ModLayer, ModLibrary,
+    get_active_profile, BulkInstallError, BulkInstallResult, InstallProgress, InstalledMod,
+    LibraryIndex, LibraryModEntry, ModArchiveFormat, ModLayer, ModLibrary,
 };
 use tauri::Emitter;
 
 impl ModLibrary {
+    pub(crate) fn active_profile_dir(&self, settings: &Settings) -> AppResult<PathBuf> {
+        self.with_index(settings, |storage_dir, index| {
+            let active_profile = get_active_profile(index)?;
+            Ok(storage_dir
+                .join("profiles")
+                .join(active_profile.slug.as_str()))
+        })
+    }
+
     pub fn get_installed_mods(&self, settings: &Settings) -> AppResult<Vec<InstalledMod>> {
         self.with_index(settings, |storage_dir, index| {
             let active_profile_id = index.active_profile_id.clone();

@@ -110,56 +110,10 @@ pub fn run(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         crate::deep_link::handle_urls(&handle_clone, &event.urls());
     });
 
-    // Trigger asynchronous resource prewarming in the background
-    prewarm_resources(app_handle.clone());
+    crate::prewarm::spawn(app_handle.clone());
 
     Ok(())
 }
-
-/// Spawns a background thread to prewarm essential application resources.
-/// Prewarming runs asynchronously to avoid blocking startup or settings saving.
-pub fn prewarm_resources(app_handle: tauri::AppHandle) {
-    std::thread::spawn(move || {
-        if let Err(e) = prewarm_resources_inner(&app_handle) {
-            tracing::warn!("Prewarming warning: {:?}", e);
-        }
-    });
-}
-
-fn prewarm_resources_inner(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    tracing::info!("Starting background prewarming...");
-
-    let settings_state = app_handle
-        .try_state::<SettingsState>()
-        .ok_or("SettingsState not managed")?;
-    let settings = settings_state.0.lock().map_err(|e| format!("Failed to lock settings: {}", e))?.clone();
-
-    if settings.league_path.is_some() {
-        // 1. Populate game champion cache
-        tracing::info!("Prewarming: populating game champion cache...");
-        match crate::commands::list_game_champions_inner(app_handle, &settings_state) {
-            Ok(_) => tracing::info!("Prewarming: game champion cache ready"),
-            Err(e) => tracing::warn!("Prewarming: failed to populate game champion cache: {:?}", e),
-        }
-
-        // 2. Build active profile overlay to warm game index
-        if settings.session_managed_patching_enabled {
-            if let Some(library_state) = app_handle.try_state::<ModLibraryState>() {
-                tracing::info!("Prewarming: building active profile overlay...");
-                match library_state.0.ensure_overlay(&settings, &[]) {
-                    Ok(path) => tracing::info!("Prewarming: active profile overlay warmed at {:?}", path),
-                    Err(e) => tracing::warn!("Prewarming: failed to warm active profile overlay: {:?}", e),
-                }
-            }
-        }
-    } else {
-        tracing::info!("Prewarming: no League path configured, skipping");
-    }
-
-    tracing::info!("Background prewarming complete");
-    Ok(())
-}
-
 
 /// Perform first-run initialization:
 /// - If league_path is not set, attempt auto-detection

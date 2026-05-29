@@ -1683,7 +1683,10 @@ mod tests {
         entry_map2.insert(Utf8PathBuf::from("a/b/c"), vec![1, 2, 3]);
         entries2.insert("wad1".to_string(), entry_map2);
 
-        assert_eq!(skin_remap_fingerprint(&entries1), skin_remap_fingerprint(&entries2));
+        assert_eq!(
+            skin_remap_fingerprint(&entries1),
+            skin_remap_fingerprint(&entries2)
+        );
     }
 
     #[test]
@@ -1698,7 +1701,10 @@ mod tests {
         entry_map2.insert(Utf8PathBuf::from("a/b/d"), vec![1, 2, 3]);
         entries2.insert("wad1".to_string(), entry_map2);
 
-        assert_ne!(skin_remap_fingerprint(&entries1), skin_remap_fingerprint(&entries2));
+        assert_ne!(
+            skin_remap_fingerprint(&entries1),
+            skin_remap_fingerprint(&entries2)
+        );
     }
 
     #[test]
@@ -1713,7 +1719,10 @@ mod tests {
         entry_map2.insert(Utf8PathBuf::from("a/b/c"), vec![1, 2, 4]);
         entries2.insert("wad1".to_string(), entry_map2);
 
-        assert_ne!(skin_remap_fingerprint(&entries1), skin_remap_fingerprint(&entries2));
+        assert_ne!(
+            skin_remap_fingerprint(&entries1),
+            skin_remap_fingerprint(&entries2)
+        );
     }
 
     #[test]
@@ -1728,6 +1737,9 @@ mod tests {
         entry_map2.insert(Utf8PathBuf::from("a/b/c"), vec![1, 2, 3]);
         entries2.insert("wad2".to_string(), entry_map2);
 
-        assert_ne!(skin_remap_fingerprint(&entries1), skin_remap_fingerprint(&entries2));
+        assert_ne!(
+            skin_remap_fingerprint(&entries1),
+            skin_remap_fingerprint(&entries2)
+        );
     }
 }
