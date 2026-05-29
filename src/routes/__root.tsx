@@ -1,5 +1,4 @@
 import { createRootRoute, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
-import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
@@ -7,7 +6,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 import { useToast } from "@/components";
 import { usePlatformSupport, useReducedMotion } from "@/hooks";
-import type { AppError } from "@/lib/tauri";
+import { api, type AppError, isErr } from "@/lib/tauri";
 import { useTauriEvent } from "@/lib/useTauriEvent";
 import { ProtocolInstallDialog, useDeepLinkListener } from "@/modules/deep-link";
 import { useLibraryWatcher } from "@/modules/library";
@@ -15,7 +14,7 @@ import { PatcherStatusPill } from "@/modules/patcher";
 import { useAppInfo, useCheckSetupRequired, useSettings } from "@/modules/settings";
 import { DevConsole, TitleBar, useDevLogStream } from "@/modules/shell";
 import { UpdateNotification, useUpdateCheck } from "@/modules/updater";
-import { useDisplayStore, useUpdaterUpdate } from "@/stores";
+import { useDisplayStore, usePatcherAuthStore, useUpdaterUpdate } from "@/stores";
 
 function RootLayout() {
   const { data: appInfo } = useAppInfo();
@@ -34,21 +33,32 @@ function RootLayout() {
 
   const { data: platform } = usePlatformSupport();
   const isMacOS = platform?.os === "macos";
+  const setPatcherAuthRequesting = usePatcherAuthStore((s) => s.setRequesting);
+  const setPatcherAuthenticated = usePatcherAuthStore((s) => s.setAuthenticated);
+  const setPatcherAuthDenied = usePatcherAuthStore((s) => s.setDenied);
 
   useEffect(() => {
     if (isMacOS) {
       const timer = setTimeout(() => {
-        invoke("pre_elevate_patcher").catch((err) => {
-          console.error("Failed to pre-elevate patcher:", err);
+        setPatcherAuthRequesting();
+        api.preElevatePatcher().then((result) => {
+          if (isErr(result)) {
+            console.error("Failed to pre-elevate patcher:", result.error.message);
+            setPatcherAuthDenied();
+          }
         });
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [isMacOS]);
+  }, [isMacOS, setPatcherAuthRequesting, setPatcherAuthDenied]);
 
   const toast = useToast();
   useTauriEvent<AppError>("patcher-elevation-failed", (payload) => {
+    setPatcherAuthDenied();
     toast.error("Startup Permission Denied", payload.message);
+  });
+  useTauriEvent<void>("patcher-elevation-complete", () => {
+    setPatcherAuthenticated();
   });
 
   const update = useUpdaterUpdate();

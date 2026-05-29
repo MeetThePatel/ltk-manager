@@ -129,6 +129,7 @@ export const api = {
   startPatcher: (config: PatcherConfig) => invokeResult<void>("start_patcher", { config }),
   stopPatcher: () => invokeResult<void>("stop_patcher"),
   getPatcherStatus: () => invokeResult<PatcherStatus>("get_patcher_status"),
+  preElevatePatcher: () => invokeResult<void>("pre_elevate_patcher"),
   getLeagueSessionState: () => invokeResult<LeagueSessionStateInner>("get_league_session_state"),
 
   // Hotkeys

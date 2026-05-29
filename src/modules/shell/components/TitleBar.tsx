@@ -1,17 +1,30 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { LucideIcon } from "lucide-react";
-import { FolderOpen, Hammer, Library, Minus, Play, Settings, Shirt, Square, X } from "lucide-react";
+import {
+  FolderOpen,
+  Hammer,
+  Library,
+  Loader2,
+  Minus,
+  Play,
+  Settings,
+  ShieldCheck,
+  Shirt,
+  Square,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { twMerge } from "tailwind-merge";
 
 import { Button, IconButton, Kbd, Separator, Tooltip, useToast } from "@/components";
 import { useHddWarning, usePlatformSupport } from "@/hooks";
-import { api, type AppInfo, unwrap } from "@/lib/tauri";
+import { api, type AppInfo, isErr, unwrap } from "@/lib/tauri";
 import { ProfileSelector, useInstalledMods, useSkinRemaps } from "@/modules/library";
 import { usePatcherStatus, useStartPatcher, useStopPatcher } from "@/modules/patcher";
 import { useSettings } from "@/modules/settings";
+import { usePatcherAuthStore } from "@/stores";
 
 import { NotificationCenter } from "./NotificationCenter";
 
@@ -80,15 +93,21 @@ export function TitleBar({ title = "LTK Manager", appInfo }: TitleBarProps) {
   const startPatcher = useStartPatcher();
   const stopPatcher = useStopPatcher();
   const maybeShowHddWarning = useHddWarning();
+  const patcherAuthStatus = usePatcherAuthStore((s) => s.status);
+  const setPatcherAuthRequesting = usePatcherAuthStore((s) => s.setRequesting);
+  const setPatcherAuthDenied = usePatcherAuthStore((s) => s.setDenied);
 
   const isStarting = patcherStatus?.phase === "building";
   const isPatcherActive = patcherStatus?.running ?? false;
   const hasPatcherInputs = mods.some((m) => m.enabled) || skinRemaps.length > 0;
   const patcherAvailable = platform?.patcherAvailable ?? true;
-  const location = useLocation();
-  const isWorkshop = location.pathname.startsWith("/workshop");
-  const showManualControls =
-    !settings?.sessionManagedPatchingEnabled || isWorkshop || isPatcherActive;
+  const sessionManagedPatchingEnabled = settings?.sessionManagedPatchingEnabled ?? true;
+  const showManualControls = !sessionManagedPatchingEnabled || isPatcherActive;
+  const showPatcherAuthControl =
+    isMacOS &&
+    sessionManagedPatchingEnabled &&
+    !isPatcherActive &&
+    (patcherAuthStatus === "denied" || patcherAuthStatus === "requesting");
 
   async function handleStartPatcher() {
     if (!settings?.leaguePath) {
@@ -114,6 +133,15 @@ export function TitleBar({ title = "LTK Manager", appInfo }: TitleBarProps) {
         console.error("Failed to stop patcher:", error.message);
       },
     });
+  }
+
+  async function handleAuthenticatePatcher() {
+    setPatcherAuthRequesting();
+    const result = await api.preElevatePatcher();
+    if (isErr(result)) {
+      setPatcherAuthDenied();
+      toast.error("Permission request failed", result.error.message);
+    }
   }
 
   useHotkeys(
@@ -194,7 +222,31 @@ export function TitleBar({ title = "LTK Manager", appInfo }: TitleBarProps) {
 
       {/* Right: Notifications, Settings, and window controls */}
       <div className={twMerge("flex h-full items-center gap-1.5", isMacOS && "pr-3")}>
-        {patcherAvailable && showManualControls && (
+        {patcherAvailable && showPatcherAuthControl && (
+          <>
+            <Tooltip content="Request patcher administrator permission">
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={handleAuthenticatePatcher}
+                disabled={patcherAuthStatus === "requesting"}
+                left={
+                  patcherAuthStatus === "requesting" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  )
+                }
+                className="h-7 rounded-full border-red-400/55 bg-red-500/15 px-2.5 text-xs font-semibold text-red-800 shadow-[0_0_0_1px_rgba(248,113,113,0.14)] hover:border-red-300/70 hover:bg-red-500/25 hover:text-red-900 disabled:opacity-80"
+              >
+                {patcherAuthStatus === "requesting" ? "Requesting..." : "Authorize Patcher"}
+              </Button>
+            </Tooltip>
+            <Separator orientation="vertical" className="h-4" />
+          </>
+        )}
+
+        {patcherAvailable && showManualControls && !showPatcherAuthControl && (
           <>
             <Tooltip
               content={

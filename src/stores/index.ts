@@ -4,6 +4,7 @@ export * from "./displayStore";
 export * from "./libraryFilter";
 export * from "./libraryView";
 export * from "./notifications";
+export * from "./patcherAuth";
 export * from "./patcherSession";
 export * from "./updater";
 export * from "./workshopDialogs";

@@ -356,6 +356,7 @@ pub fn pre_elevate_patcher(app_handle: AppHandle) -> IpcResult<()> {
                 let _ = app_handle.emit("patcher-elevation-failed", &error_response);
             } else {
                 tracing::info!("Successfully pre-elevated macOS process patcher at startup");
+                let _ = app_handle.emit("patcher-elevation-complete", ());
             }
         });
     }
