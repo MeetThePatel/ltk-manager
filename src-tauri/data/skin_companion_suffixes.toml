@@ -1,0 +1,146 @@
+direct = [
+  "air",
+  "axe",
+  "bait",
+  "ball",
+  "barrel",
+  "big",
+  "box",
+  "clone",
+  "cougar",
+  "dark",
+  "dead",
+  "dragon",
+  "effigy",
+  "egg",
+  "faerie",
+  "fire",
+  "follower",
+  "ice",
+  "lantern",
+  "magma",
+  "mine",
+  "minion",
+  "mount",
+  "mushroom",
+  "mystic",
+  "nature",
+  "passive",
+  "seed",
+  "shadow",
+  "shark",
+  "soldier",
+  "soul",
+  "spawn",
+  "spear",
+  "sphere",
+  "spider",
+  "spore",
+  "standard",
+  "storm",
+  "trap",
+  "tunnel",
+  "turret",
+  "ult",
+  "valor",
+  "voidling",
+  "wall",
+  "water",
+  "wolf"
+]
+
+[[alias]]
+suffix = "altar"
+trigger = "tar"
+
+[[alias]]
+suffix = "bigghoul"
+trigger = "ghoul"
+
+[[alias]]
+suffix = "blades"
+trigger = "blade"
+
+[[alias]]
+suffix = "demonform"
+trigger = "demon"
+
+[[alias]]
+suffix = "djgenre02"
+trigger = "djgenre"
+
+[[alias]]
+suffix = "djgenre03"
+trigger = "djgenre"
+
+[[alias]]
+suffix = "ghoulmelee"
+trigger = "ghoul"
+
+[[alias]]
+suffix = "graspingplant"
+trigger = "grasping"
+
+[[alias]]
+suffix = "iceblock"
+trigger = "block"
+
+[[alias]]
+suffix = "minion"
+trigger = "mini"
+
+[[alias]]
+suffix = "orbs"
+trigger = "orb"
+
+[[alias]]
+suffix = "packmate"
+trigger = "pack"
+
+[[alias]]
+suffix = "rider"
+trigger = "ride"
+
+[[alias]]
+suffix = "snowball"
+trigger = "snow"
+
+[[alias]]
+suffix = "spiderling"
+trigger = "spider"
+
+[[alias]]
+suffix = "spirits"
+trigger = "spirit"
+
+[[alias]]
+suffix = "sundisc"
+trigger = "disc"
+
+[[alias]]
+suffix = "thornplant"
+trigger = "thorn"
+
+[[alias]]
+suffix = "tibbers"
+trigger = "tibber"
+
+[[alias]]
+suffix = "towerclicker"
+trigger = "towerclick"
+
+[[alias]]
+suffix = "ultsoldier"
+trigger = "soldier"
+
+[[alias]]
+suffix = "voidling"
+trigger = "void"
+
+[[alias]]
+suffix = "wallchunk"
+trigger = "chunk"
+
+[[alias]]
+suffix = "wghoul"
+trigger = "ghoul"

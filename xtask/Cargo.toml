@@ -1,0 +1,13 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ltk_wad = "0.2.12"
+ltk_meta = "0.5.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
+rayon = "1.12.0"

@@ -515,6 +515,26 @@ fn collect_companion_skin_id_candidates_from_path(
         }
     }
 }
+#[derive(Debug, serde::Deserialize)]
+struct CompanionRules {
+    direct: Vec<String>,
+    alias: Vec<AliasRule>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct AliasRule {
+    suffix: String,
+    trigger: String,
+}
+
+static COMPANION_RULES: std::sync::OnceLock<CompanionRules> = std::sync::OnceLock::new();
+
+fn get_companion_rules() -> &'static CompanionRules {
+    COMPANION_RULES.get_or_init(|| {
+        let toml_str = include_str!("../data/skin_companion_suffixes.toml");
+        toml::from_str(toml_str).expect("Failed to parse skin_companion_suffixes.toml")
+    })
+}
 
 fn collect_companion_skin_id_candidates_from_terms(
     value: &str,
@@ -522,26 +542,16 @@ fn collect_companion_skin_id_candidates_from_terms(
     candidates: &mut BTreeSet<String>,
 ) {
     let lower = value.to_ascii_lowercase();
-    let suffixes = [
-        ("packmate", "packmate"),
-        ("ghoulmelee", "ghoul"),
-        ("bigghoul", "ghoul"),
-        ("maiden", "maiden"),
-        ("mistwalker", "mist"),
-        ("minion", "minion"),
-        ("pet", "pet"),
-        ("clone", "clone"),
-        ("spiderling", "spider"),
-        ("voidling", "voidling"),
-        ("tentacle", "tentacle"),
-        ("soldier", "soldier"),
-        ("turret", "turret"),
-        ("plant", "plant"),
-        ("seed", "seed"),
-    ];
-    for (suffix, trigger) in suffixes {
-        if lower.contains(trigger) {
+    let rules = get_companion_rules();
+    for suffix in &rules.direct {
+        if lower.contains(suffix) {
             candidates.insert(format!("{champion_lower}{suffix}"));
+        }
+    }
+
+    for alias in &rules.alias {
+        if lower.contains(&alias.trigger) {
+            candidates.insert(format!("{champion_lower}{}", alias.suffix));
         }
     }
 }
@@ -1563,6 +1573,123 @@ mod tests {
     }
 
     #[test]
+    fn skin_remap_content_generates_cougar_form_skin_overrides() {
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path();
+        let champions_dir = game_dir.join("DATA").join("FINAL").join("Champions");
+        std::fs::create_dir_all(&champions_dir).unwrap();
+        let wad_path = champions_dir.join("Nidalee.wad.client");
+        let cougar_model_source_path =
+            "assets/characters/nidaleecougar/skins/skin67/nidaleecougar_skin67.skn";
+        let cougar_model_target_path =
+            "assets/characters/nidaleecougar/skins/skin0/nidaleecougar_skin0.skn";
+        let cougar_audio_event = "Play_sfx_NidaleeCougarSkin67_Attack";
+
+        write_test_wad(
+            &wad_path,
+            vec![
+                (
+                    "data/characters/nidalee/skins/skin67.bin",
+                    sample_skin_bin_with_strings(
+                        "Nidalee",
+                        67,
+                        &[("cougarAttackSfx", "Play_sfx_NidaleeSkin67_Cougar_Attack")],
+                    ),
+                ),
+                (
+                    "data/characters/nidaleecougar/skins/skin67.bin",
+                    sample_skin_bin_with_strings(
+                        "NidaleeCougar",
+                        67,
+                        &[
+                            (
+                                "modelPath",
+                                "ASSETS/Characters/NidaleeCougar/Skins/Skin67/NidaleeCougar_Skin67.skn",
+                            ),
+                            ("attackSfx", cougar_audio_event),
+                        ],
+                    ),
+                ),
+                (cougar_model_source_path, b"kittalee-cougar-model".to_vec()),
+            ],
+        );
+
+        let mut content = SkinRemapContent::new(
+            game_dir.to_path_buf(),
+            vec![SkinRemap {
+                champion_id: "Nidalee".to_string(),
+                champion_name: "Nidalee".to_string(),
+                target_skin_number: 67,
+                target_skin_name: Some("Kittalee".to_string()),
+                target_chroma_id: None,
+                target_chroma_name: None,
+            }],
+        )
+        .unwrap();
+
+        let overrides = content
+            .read_wad_overrides(BASE_LAYER, "nidalee.wad.client")
+            .unwrap();
+        let override_paths = overrides
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .collect::<BTreeSet<_>>();
+
+        assert!(override_paths.contains("data/characters/nidalee/skins/skin0.bin"));
+        assert!(override_paths.contains("data/characters/nidaleecougar/skins/skin0.bin"));
+        assert!(override_paths.contains(cougar_model_target_path));
+
+        let cougar_bin_bytes = overrides
+            .iter()
+            .find(|(path, _)| path.as_str() == "data/characters/nidaleecougar/skins/skin0.bin")
+            .map(|(_, bytes)| bytes)
+            .unwrap();
+        let cougar_bin = Bin::from_reader(&mut Cursor::new(cougar_bin_bytes)).unwrap();
+        let cougar_object = cougar_bin
+            .get_object(skin_object_hash("NidaleeCougar", 0, None))
+            .unwrap();
+        assert!(!cougar_bin.contains_object(skin_object_hash("NidaleeCougar", 67, None)));
+        assert_eq!(
+            cougar_object
+                .get_property(ltk_hash::fnv1a::hash_lower("attackSfx"))
+                .unwrap(),
+            &PropertyValueEnum::String(values::String::from(cougar_audio_event))
+        );
+    }
+
+    #[test]
+    fn companion_skin_id_candidates_include_scanned_suffixes() {
+        let cases = [
+            (
+                "Annie",
+                "Play_sfx_AnnieSkin08_AnnieR_tibbers_enraged_buffactivate",
+                "annietibbers",
+            ),
+            ("Gnar", "Play_vo_GnarBig_Attack2DGeneral", "gnarbig"),
+            (
+                "Zyra",
+                "Play_sfx_ZyraThornPlantSkin55_ZyraQPlantMissile_missilelaunch",
+                "zyrathornplant",
+            ),
+            ("Kled", "Play_sfx_KledSkin09_Switch_Mount_Off", "kledmount"),
+            (
+                "Lux",
+                "ASSETS/Characters/Lux/Skins/Skin07/Lux_Air_Skin07.skl",
+                "luxair",
+            ),
+        ];
+
+        for (champion_id, value, expected) in cases {
+            let candidates =
+                companion_skin_id_candidates_from_string(value, &champion_id.to_ascii_lowercase());
+            assert!(
+                candidates.contains(expected),
+                "expected {expected} from {value}, got {candidates:?}"
+            );
+        }
+    }
+
+    #[test]
     fn skin_remap_content_uses_chroma_id_as_target_skin_slot() {
         let dir = tempfile::tempdir().unwrap();
         let game_dir = dir.path();
@@ -1741,5 +1868,61 @@ mod tests {
             skin_remap_fingerprint(&entries1),
             skin_remap_fingerprint(&entries2)
         );
+    }
+
+    #[test]
+    fn test_parse_toml_companion_rules() {
+        let rules = get_companion_rules();
+        assert!(!rules.direct.is_empty());
+        assert!(!rules.alias.is_empty());
+    }
+
+    #[test]
+    fn test_companion_id_candidates() {
+        // Nidalee + cougar -> nidaleecougar
+        let mut candidates = BTreeSet::new();
+        collect_companion_skin_id_candidates_from_terms(
+            "nidalee_cougar_sfx",
+            "nidalee",
+            &mut candidates,
+        );
+        assert!(candidates.contains("nidaleecougar"));
+
+        // Annie + tibbers -> annietibbers
+        let mut candidates = BTreeSet::new();
+        collect_companion_skin_id_candidates_from_terms(
+            "annietibbers_cast",
+            "annie",
+            &mut candidates,
+        );
+        assert!(candidates.contains("annietibbers"));
+
+        // Zyra + thornplant -> zyrathornplant
+        let mut candidates = BTreeSet::new();
+        collect_companion_skin_id_candidates_from_terms(
+            "zyrathornplant_spit",
+            "zyra",
+            &mut candidates,
+        );
+        assert!(candidates.contains("zyrathornplant"));
+
+        // Yorick + ghoul alias -> yorickghoulmelee and yorickbigghoul
+        let mut candidates = BTreeSet::new();
+        collect_companion_skin_id_candidates_from_terms(
+            "yorickghoul_attack",
+            "yorick",
+            &mut candidates,
+        );
+        assert!(candidates.contains("yorickghoulmelee"));
+        assert!(candidates.contains("yorickbigghoul"));
+
+        // Elise + spider alias -> elisespiderling
+        let mut candidates = BTreeSet::new();
+        collect_companion_skin_id_candidates_from_terms(
+            "elisespider_bite",
+            "elise",
+            &mut candidates,
+        );
+        assert!(candidates.contains("elisespiderling"));
     }
 }
